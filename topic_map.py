@@ -5,6 +5,7 @@ import logging
 import pickle
 import os
 
+from scipy.optimize import differential_evolution
 import numpy
 from gensim.models import EnsembleLda
 from gensim.models import Phrases
@@ -35,6 +36,7 @@ class ChunkerLdaModel(LdaModel):
         kwargs['chunksize'] = 100000
         super().__init__(*args, **kwargs)
 
+
 def main():
     parser = argparse.ArgumentParser(description='Parse and process abstract files')
     parser.add_argument(
@@ -48,6 +50,14 @@ def main():
             '0KEY1 - VALUE1\n'
             '0KEY2 - VALUE2\n'
             '...'))
+    parser.add_argument(
+        '--eps', type=float)
+    parser.add_argument(
+        '--min_samples', type=int)
+    parser.add_argument(
+        '--min_cores', type=int)
+    parser.add_argument(
+        '--num_words', type=int)
     # 2) the natural habitat eo characteristics in and out of polygon
     # 3) proportion of area outside of polygon
     args = parser.parse_args()
@@ -86,22 +96,63 @@ def main():
     shape = ensemble.asymmetric_distance_matrix.shape
     without_diagonal = ensemble.asymmetric_distance_matrix[~numpy.eye(shape[0], dtype=bool)].reshape(shape[0], -1)
 
-    ensemble.recluster(eps=0.3, min_samples=2, min_cores=2)
-    top_words_per_topic = get_top_words_for_each_topic(ensemble, num_words=10)
+    bounds = [
+        (0.0, 1.0), # eps
+        (1, 10), # min samples
+        (1, 10), # num cores
+        ]
+
+    # result = differential_evolution(
+    #     recluster,
+    #     bounds,
+    #     (ensemble,),
+    #     strategy='best1bin',
+    #     maxiter=1000,
+    #     popsize=15,
+    #     tol=0.01,
+    #     mutation=(0.5, 1),
+    #     recombination=0.7,
+    #     workers=-1)
+    # print(result)
+
 
     # Print the top words for each topic
+    ensemble.recluster(
+        eps=args.eps,
+        min_samples=int(args.min_samples),
+        min_cores=int(args.min_cores))
+    top_words_with_probability = get_top_words_for_each_topic(ensemble, num_words=args.num_words)
     print(without_diagonal.min(), without_diagonal.mean(), without_diagonal.max())
-    print()
-    for topic_num, top_words in top_words_per_topic:
-        quoted_top_words = [f"'{word}'" for word in top_words]
+    print(top_words_with_probability)
+    csv_file = open('topics.csv', 'w')
+    for topic_num, top_words in enumerate(top_words_with_probability):
+        prob_array = [prob for _, prob in top_words]
+        percentile_value = numpy.percentile(prob_array, 90)
+        quoted_top_words = [
+            f"'{word}: {probability:.2f}'" for (word, probability) in top_words
+            if probability >= percentile_value]
         print(f"Topic {topic_num}: {', '.join(quoted_top_words)}")
+        csv_file.write(','.join(quoted_top_words))
+        csv_file.write('\n')
+    csv_file.close()
+
+def recluster(x, ensemble):
+    eps, min_samples, min_cores = x
+    ensemble.recluster(
+        eps=eps,
+        min_samples=int(min_samples),
+        min_cores=int(min_cores))
+
+    top_words_with_probability = get_top_words_for_each_topic(ensemble, num_words=10)
+    return -len(top_words_with_probability)
+
 
 
 def get_top_words_for_each_topic(ensemble, num_words=10):
     top_words_per_topic = []
-    for topic_idx, word_distribution in enumerate(ensemble.get_topics()):
-        top_words = [ensemble.id2word[i] for i in sorted(range(len(word_distribution)), key=lambda i: -word_distribution[i])[:num_words]]
-        top_words_per_topic.append((topic_idx, top_words))
+    # for topic_idx, word_distribution in enumerate(ensemble.get_topics()):
+    #     top_words = [ensemble.id2word[i] for i in sorted(range(len(word_distribution)), key=lambda i: -word_distribution[i])[:num_words]]
+    #     top_words_per_topic.append((topic_idx, top_words))
 
     for topic_idx, word_distribution in enumerate(ensemble.get_topics()):
         # Sort words in topic based on their probability and select top words
@@ -111,13 +162,14 @@ def get_top_words_for_each_topic(ensemble, num_words=10):
         top_words_with_probability = [
             (ensemble.id2word[word_idx], prob)
             for word_idx, prob in sorted_words]
+        top_words_per_topic.append(top_words_with_probability)
 
     return top_words_per_topic
 
-
-def topic_map(docs):
+def scrub_docs(docs):
     # Split the documents into tokens.
     # NLTK Stop words
+    docs_copy = docs.copy()
     stop_words = set(stopwords.words('english'))
     # Add any custom stopwords
     custom_stopwords = {
@@ -126,27 +178,35 @@ def topic_map(docs):
     stop_words = stop_words.union(custom_stopwords)
 
     tokenizer = RegexpTokenizer(r'\w+')
-    for idx in range(len(docs)):
-        docs[idx] = docs[idx].lower()  # Convert to lowercase.
-        docs[idx] = tokenizer.tokenize(docs[idx])  # Split into words.
-        docs[idx] = [token for token in docs[idx] if token not in stop_words]
+    for idx in range(len(docs_copy)):
+        docs_copy[idx] = docs_copy[idx].lower()  # Convert to lowercase.
+        docs_copy[idx] = tokenizer.tokenize(docs_copy[idx])  # Split into words.
+        docs_copy[idx] = [token for token in docs_copy[idx] if token not in stop_words]
 
     # Remove numbers, but not words that contain numbers.
-    docs = [[token for token in doc if not token.isnumeric()] for doc in docs]
+    docs_copy = [[token for token in doc if not token.isnumeric()] for doc in docs_copy]
     # Remove words that are too short
-    docs = [[token for token in doc if len(token) > 3] for doc in docs]
+    docs_copy = [[token for token in doc if len(token) > 3] for doc in docs_copy]
 
     lemmatizer = WordNetLemmatizer()
-    docs = [[lemmatizer.lemmatize(token) for token in doc] for doc in docs]
+    docs_copy = [[lemmatizer.lemmatize(token) for token in doc] for doc in docs_copy]
 
-    # Add bigrams and trigrams to docs (only ones that appear 20 times or more).
+    # Add bigrams and trigrams to docs_copy (only ones that appear 20 times or more).
     bigram = Phrases(
-        docs, min_count=20, connector_words=phrases.ENGLISH_CONNECTOR_WORDS)
-    for idx in range(len(docs)):
-        for token in bigram[docs[idx]]:
+        docs_copy, min_count=20, connector_words=phrases.ENGLISH_CONNECTOR_WORDS)
+    for idx in range(len(docs_copy)):
+        for token in bigram[docs_copy[idx]]:
             if '_' in token:
                 # Token is a bigram, add to document.
-                docs[idx].append(token)
+                docs_copy[idx].append(token)
+    return docs_copy
+
+
+def topic_map(docs):
+    # Split the documents into tokens.
+    # NLTK Stop words
+
+    docs = scrub_docs(docs)
 
     # Create a dictionary representation of the documents.
     dictionary = corpora.Dictionary(docs)
