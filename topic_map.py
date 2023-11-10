@@ -23,7 +23,10 @@ logging.basicConfig(
 logging.getLogger('taskgraph').setLevel(logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
-ARTICLES_TO_DROP = ['breast', 'melanoma']
+ARTICLES_TO_DROP = [
+    'breast', 'melanoma', 'node', 'lymph', 'sentinel', 'cancer', 'patient',
+    'biopsy', 'lymph_node', 'node_biopsy',
+    'immune', 'tissue',]
 
 
 class ChunkerLdaModel(LdaModel):
