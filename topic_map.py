@@ -25,9 +25,9 @@ logging.getLogger('taskgraph').setLevel(logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
 ARTICLES_TO_DROP = [
-    'breast', 'melanoma', 'node', 'lymph', 'sentinel', 'cancer', 'patient',
-    'biopsy', 'lymph_node', 'node_biopsy',
-    'immune', 'tissue',]
+    'breast', 'melanoma', 'node', 'lymph', 'cancer', 'patient',
+    'biopsy', 'lymph_node', 'node_biopsy', 'immune', 'tissue',
+    'sentinel']
 
 
 class ChunkerLdaModel(LdaModel):
@@ -58,6 +58,8 @@ def main():
         '--min_cores', type=int)
     parser.add_argument(
         '--num_words', type=int)
+    parser.add_argument(
+        '--differential_evolution', action='store_true')
     # 2) the natural habitat eo characteristics in and out of polygon
     # 3) proportion of area outside of polygon
     args = parser.parse_args()
@@ -78,7 +80,7 @@ def main():
                 for line in file:
                     line = line.decode('UTF-8')
                     if line.startswith(abstract_key):
-                        line = line.split('-')[1]
+                        line = '-'.join(line.split('-')[1:])
                         if not any(word in line for word in ARTICLES_TO_DROP):
                             abstract_list.append(line)
                         else:
@@ -102,39 +104,39 @@ def main():
         (1, 10), # num cores
         ]
 
-    # result = differential_evolution(
-    #     recluster,
-    #     bounds,
-    #     (ensemble,),
-    #     strategy='best1bin',
-    #     maxiter=1000,
-    #     popsize=15,
-    #     tol=0.01,
-    #     mutation=(0.5, 1),
-    #     recombination=0.7,
-    #     workers=-1)
-    # print(result)
-
-
-    # Print the top words for each topic
-    ensemble.recluster(
-        eps=args.eps,
-        min_samples=int(args.min_samples),
-        min_cores=int(args.min_cores))
-    top_words_with_probability = get_top_words_for_each_topic(ensemble, num_words=args.num_words)
-    print(without_diagonal.min(), without_diagonal.mean(), without_diagonal.max())
-    print(top_words_with_probability)
-    csv_file = open('topics.csv', 'w')
-    for topic_num, top_words in enumerate(top_words_with_probability):
-        prob_array = [prob for _, prob in top_words]
-        percentile_value = numpy.percentile(prob_array, 90)
-        quoted_top_words = [
-            f"'{word}: {probability:.2f}'" for (word, probability) in top_words
-            if probability >= percentile_value]
-        print(f"Topic {topic_num}: {', '.join(quoted_top_words)}")
-        csv_file.write(','.join(quoted_top_words))
-        csv_file.write('\n')
-    csv_file.close()
+    if args.differential_evolution:
+        result = differential_evolution(
+            recluster,
+            bounds,
+            (ensemble,),
+            strategy='best1bin',
+            maxiter=1000,
+            popsize=15,
+            tol=0.01,
+            mutation=(0.5, 1),
+            recombination=0.7,
+            workers=-1)
+        print(result)
+    else:
+        # Print the top words for each topic
+        ensemble.recluster(
+            eps=args.eps,
+            min_samples=int(args.min_samples),
+            min_cores=int(args.min_cores))
+        top_words_with_probability = get_top_words_for_each_topic(ensemble, num_words=args.num_words)
+        print(without_diagonal.min(), without_diagonal.mean(), without_diagonal.max())
+        print(top_words_with_probability)
+        csv_file = open('topics.csv', 'w')
+        for topic_num, top_words in enumerate(top_words_with_probability):
+            prob_array = [prob for _, prob in top_words]
+            percentile_value = numpy.percentile(prob_array, 90)
+            quoted_top_words = [
+                f"{word}: {probability}" for (word, probability) in top_words
+                if probability >= percentile_value]
+            print(f"Topic {topic_num}: {', '.join(quoted_top_words)}")
+            csv_file.write(f'Topic {topic_num},' + ','.join(quoted_top_words))
+            csv_file.write('\n')
+        csv_file.close()
 
 def recluster(x, ensemble):
     eps, min_samples, min_cores = x
