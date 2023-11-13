@@ -1,5 +1,6 @@
 """NLP Topic mapping given abstract files"""
 import argparse
+import collections
 import glob
 import logging
 import pickle
@@ -31,6 +32,7 @@ LOGGER = logging.getLogger(__name__)
 logging.getLogger('matplotlib').setLevel(logging.WARN)
 logging.getLogger('PIL').setLevel(logging.WARN)
 
+
 def main():
     parser = argparse.ArgumentParser(description='Parse and process abstract files')
     parser.add_argument('abstract_file_pattern', help='pth to abstracts')
@@ -42,19 +44,28 @@ def main():
     print(topic_table)
 
     global_topics = []
-    topic_to_word_map = {}
+    topic_to_word_map = collections.defaultdict(lambda: {})
+    topic_count = collections.defaultdict(int)
     for _, row in topic_table.iterrows():
         if not isinstance(row[0], str):
             continue
         topic = row[0]
         if topic == '':
             continue
-        global_topics.append(topic)
+        if topic_count[topic] == 0:
+            global_topics.append(topic)
+        topic_count[topic] += 1
 
-        words = [
-            (v.split(':')[0], float(v.split(':')[1][:-1]))
-            for v in row[1:] if isinstance(v, str)]
-        topic_to_word_map[topic] = words
+        # words = [
+        #     (v.split(':')[0], float(v.split(':')[1][:-1]))
+        #     for v in row[1:] if isinstance(v, str)]
+        for v in row[1:]:
+            if not isinstance(v, str):
+                continue
+            word = v.split(':')[0]
+            prob = float(v.split(':')[1])
+
+            topic_to_word_map[topic][word] += prob
     file_list = [
         path
         for path in glob.glob(args.abstract_file_pattern)]
@@ -84,8 +95,9 @@ def main():
         prob_vector = []
         for topic in global_topics:
             running_sum = 0.0
-            for word, prob in topic_to_word_map[topic]:
-                running_sum += doc.count(word)*prob
+            for word, prob in topic_to_word_map[topic].items():
+                norm_prob = prob/topic_count[topic]
+                running_sum += doc.count(word)*norm_prob
             prob_vector.append(running_sum)
         correlation_matrix.append(prob_vector)
         # for debugging to see what the top topics ard
