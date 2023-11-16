@@ -179,6 +179,7 @@ def scrub_docs(docs):
     custom_stopwords = {
         'this', 'study', 'paper', 'this_work', 'recent', 'have', 'le',
         'recently'}
+
     stop_words = stop_words.union(custom_stopwords)
 
     tokenizer = RegexpTokenizer(r'\w+')
