@@ -46,6 +46,7 @@ def main():
     global_topics = []
     topic_to_word_map = collections.defaultdict(lambda: {})
     topic_count = collections.defaultdict(int)
+    topic_prob_sum = collections.defaultdict(float)
     for _, row in topic_table.iterrows():
         if not isinstance(row[0], str):
             continue
@@ -55,10 +56,6 @@ def main():
         if topic_count[topic] == 0:
             global_topics.append(topic)
         topic_count[topic] += 1
-
-        # words = [
-        #     (v.split(':')[0], float(v.split(':')[1][:-1]))
-        #     for v in row[1:] if isinstance(v, str)]
         for v in row[1:]:
             if not isinstance(v, str):
                 continue
@@ -66,6 +63,10 @@ def main():
             prob = float(v.split(':')[1])
 
             topic_to_word_map[topic][word] += prob
+            topic_prob_sum[topic] += prob
+    for topic, word_map in topic_to_word_map.items():
+        for word in word_map:
+            word_map[word] /= topic_prob_sum[topic]
     file_list = [
         path
         for path in glob.glob(args.abstract_file_pattern)]
