@@ -44,7 +44,7 @@ def main():
     print(topic_table)
 
     global_topics = []
-    topic_to_word_map = collections.defaultdict(lambda: {})
+    topic_to_word_map = collections.defaultdict(lambda: collections.defaultdict(float))
     topic_count = collections.defaultdict(int)
     for _, row in topic_table.iterrows():
         if not isinstance(row[0], str):
@@ -69,7 +69,6 @@ def main():
     file_list = [
         path
         for path in glob.glob(args.abstract_file_pattern)]
-    file_list = file_list[0:1]
     print(file_list)
     print(global_topics)
 
@@ -114,8 +113,26 @@ def main():
     linkage_matrix = linkage(correlation_matrix.transpose(), method='ward')
     print(linkage_matrix.shape)
     # Plot a dendrogram to visualize the clustering
+    # Example usage
+    print_dendrogram(linkage_matrix, global_topics)
     dendrogram(linkage_matrix, labels=global_topics, orientation='right', color_threshold=5)
     plt.show()
+
+
+def print_dendrogram(linkage_matrix, labels, level=0, index=-1):
+    if index == -1:
+        index = linkage_matrix.shape[0] + linkage_matrix.shape[1] - 2
+
+    if index < len(labels):
+        print('    ' * level + '- ' + labels[index])
+    else:
+        left = int(linkage_matrix[index - len(labels), 0])
+        right = int(linkage_matrix[index - len(labels), 1])
+
+        print('    ' * level + '+ Cluster ' + str(index))
+
+        print_dendrogram(linkage_matrix, labels, level + 1, left)
+        print_dendrogram(linkage_matrix, labels, level + 1, right)
 
 
 if __name__ == '__main__':

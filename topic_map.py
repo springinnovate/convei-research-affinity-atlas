@@ -134,7 +134,9 @@ def main():
                 f"{word}: {probability}" for (word, probability) in top_words
                 if probability >= percentile_value]
             print(f"Topic {topic_num}: {', '.join(quoted_top_words)}")
-            csv_file.write(f'Topic {topic_num},' + ','.join(quoted_top_words))
+            csv_file.write(
+                f'{quoted_top_words[0].split(":")[0]},' +
+                ','.join(quoted_top_words))
             csv_file.write('\n')
         csv_file.close()
 
