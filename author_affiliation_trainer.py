@@ -26,7 +26,7 @@ def process_key(context, classification_file, affiliation_list):
             context['count'] += 1
             os.system('cls')
             if context['count'] > 0:
-                print(f'great job, you have classified {context["count"]} affiliations so far!')
+                print(f'great job, you have classified {context["count"]//2} affiliations so far!')
             print_choices(context['affiliation'])
         else:
             print(f'!ERROR, unknown choice "{choice}" try again!\n')
