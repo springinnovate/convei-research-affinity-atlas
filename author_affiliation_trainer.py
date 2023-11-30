@@ -44,8 +44,8 @@ def main():
         context = {
             'affiliation': affiliation
         }
-        print_choices(affiliation)
         os.system('cls')
+        print_choices(affiliation)
         keyboard.hook(process_key(context, classification_file, affiliation_list))
         keyboard.wait('esc')
         keyboard.unhook_all()
