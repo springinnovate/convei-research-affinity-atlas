@@ -23,7 +23,10 @@ def process_key(context, classification_file, affiliation_list):
         if choice in CHOICES:
             classification_file.write(f'{CHOICES[choice]}: {context["affiliation"]}\n')
             context['affiliation'] = affiliation_list[random.randrange(len(affiliation_list))]
+            context['count'] += 1
             os.system('cls')
+            if context['count'] > 0:
+                print(f'great job, you have classified {context["count"]} affiliations so far!')
             print_choices(context['affiliation'])
         else:
             print(f'!ERROR, unknown choice "{choice}" try again!\n')
@@ -42,7 +45,8 @@ def main():
     with open(classified_filename, 'w', encoding='utf-8') as classification_file:
         affiliation = affiliation_list[random.randrange(len(affiliation_list))]
         context = {
-            'affiliation': affiliation
+            'affiliation': affiliation,
+            'count': 0,
         }
         os.system('cls')
         print_choices(affiliation)
