@@ -196,16 +196,19 @@ def scrub_docs(docs, min_length):
 
     lemmatizer = WordNetLemmatizer()
     docs_copy = [[lemmatizer.lemmatize(token) for token in doc] for doc in docs_copy]
-
-    # Add bigrams and trigrams to docs_copy (only ones that appear 20 times or more).
-    bigram = Phrases(
-        docs_copy, min_count=20, connector_words=phrases.ENGLISH_CONNECTOR_WORDS)
-    for idx in range(len(docs_copy)):
-        for token in bigram[docs_copy[idx]]:
-            if '_' in token:
-                # Token is a bigram, add to document.
-                docs_copy[idx].append(token)
     return docs_copy
+
+
+def make_bigram(docs):
+    # Add bigrams and trigrams to docs (only ones that appear 20 times or more).
+    bigram = Phrases(
+        docs, min_count=20, connector_words=phrases.ENGLISH_CONNECTOR_WORDS)
+    return bigram
+    # for idx in range(len(docs)):
+    #     for token in bigram[docs[idx]]:
+    #         if '_' in token:
+    #             # Token is a bigram, add to document.
+    #             docs[idx].append(token)
 
 
 def topic_map(docs):

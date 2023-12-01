@@ -8,7 +8,8 @@ import keyboard
 
 CHOICES = {
     'u': 'university',
-    'o': 'other',
+    'r': 'research',
+    'p': 'practice',
 }
 
 
