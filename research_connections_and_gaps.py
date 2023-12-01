@@ -121,6 +121,7 @@ def main():
 
 
 def print_dendrogram(linkage_matrix, labels, level=0, index=-1):
+    print(index)
     if index == -1:
         index = linkage_matrix.shape[0] + linkage_matrix.shape[1] - 2
 

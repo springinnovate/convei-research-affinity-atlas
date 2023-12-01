@@ -1,0 +1,102 @@
+university:  Department of Biological Sciences, The Guy Harvey Research Institute, Nova Southeastern University, Dania Beach, FL, United States
+university:  Department Environment and Biodiversity, University of Salzburg, Salzburg, Austria
+non-government non-university non-private:  Institute of Physico-Chemical and Biological Problems in Soil Science of the Russian Academy of Sciences, 2 Institutskaya St, Pushchino, 142290, Moscow Region, Russian Federation
+university: Natural Resources and Environmental Studies, University of Northern British Columbia, Prince George, V2N 4Z9, BC, Canada
+non-government non-university non-private:  Anhui Climate Center, Hefei, 230031, China
+university: Department of Environment and Sustainability Sciences, Faculty of Natural Resources and Environment, University for Development Studies, West African Centre for Water, Irrigation and Sustainable Agriculture, Nyankpala-Campus, P.O. Box TL1882, Tamale, Ghana
+government:  Naval Research Laboratory, Monterey, CA, United States
+government:  Department of Migration and Immuno-Ecology, Max Planck Institute for Ornithology, Radolfzell 78315, Am Obstberg 1, Germany
+university:  College of Earth and Environmental Sciences, Lanzhou University, Lanzhou, China
+university:  Institute of Mathematics, Statistics and Physics (IMEF), Federal University of Rio Grande (FURG), Rio Grande, 96203-900, Brazil
+university: Dept. of Chemical, Environmental and Materials Engineering, Univ. of Miami, Coral Gables, 33124, FL, United States
+university:  School of Forestry and Environmental Studies, Yale University, New Haven, CT, United States
+university:  Warsash School of Maritime Science and Engineering, East Park Terrace, Solent University, Southampton, SO14 OYN, United Kingdom
+university:  College of Resources and Environment, University of Chinese Academy of Sciences, Beijing, 100190, China
+university: School of Earth and Environmental Science, University of Wollongong, Northfields Ave, Wollongong, 2522, NSW, Australia
+university:  Biocomplexity Research Focus Laboratory of Plant Biology and Nature Management, Mangrove Management Group, Vrije Universiteit Brussel - VUB, B-1050 Brussel, Pleinlaan 2, Belgium
+university:  Department of Biological Sciences, Eduardo Mondlane University, P.O. Box 257, Maputo, 1100, Mozambique
+university: Department of Civil and Environmental Engineering, Politecnico di Milano, Piazza L. da Vinci 32, Milano, 20133, Italy
+university: Department of Range and Watershed Management, Faculty of Agriculture and Natural Resource, Ardakan University, Yazd, Iran
+university:  Szkoła Główna Gospodarstwa Wiejskiego, Instytut Nauk Leśnych, ul. Nowoursynowska 159, Warszawa, 02-776, Poland
+university:  University Hospital Essen, Clinic for Cardiology, Hufelandstraße 55, Essen, 45147, Germany
+university:  Department of Urban and Regional Planning, Jackson State University, Jackson, MS 39211, United States
+university:  Department of Forestry and Environmental Resources and Center for Geospatial Analytics, NC State University, Raleigh, NC, United States
+university: Geoinformatics Laboratory, Department of Civil Engineering, Indian Institute of Technology Kanpur, Kanpur, 208 016, India
+university:  Department of Family, Youth and Community Sciences, University of Florida, Gainesville, FL, United States
+university: School of Geospatial Engineering and Science, Sun Yat-Sen University, Zhuhai, China
+university: Department of Geosciences, Environment and Society, Université Libre de Bruxelles (ULB), Brussels, 1050, Belgium
+non-government non-university non-private:  Environment Research Centre, Teagasc, Johnstown Castle, Co., Wexford, Ireland
+non-government non-university non-private:  Centre for Global Child Health, The Hospital for Sick Children, Toronto, ON, Canada
+university:  Department of Geography, McGill University, Montreal, H3A 2K6, QC, Canada
+government:  International Max Planck Research School (IMPRS), Max Planck Institute for Biogeochemistry, Jena, 07745, Germany
+university:  School of Remote Sensing and Information Engineering, Wuhan University, 129 Luoyu Road, Wuhan, 430079, China
+university:  UR LESSEM, Irstea, Université Grenoble Alpes, St-Martin-d’Hères, France
+university:  Department of Natural Resources, Isfahan University of Technology, Isfahan, Iran
+university:  Department of Urban and Environmental Sociology, Helmholtz Centre for Environmental Research – UFZ, Permoserstraße 15, Leipzig, 04318, Germany
+university:  Institute of Biology, University of Halle Wittenberg, Halle, D-06108, Germany
+government: U.S. Environmental Protection Agency, Office of Research and Development, Western Ecology Division, Corvallis, OR 97330, 200 SW 35th Street, United States
+university:  Azienda Ospedaliera Papa Giovanni XXIII, Bergamo, Italy
+university:  School of Urban and Environmental Engineering, Ulsan National Institute of Science and Technology (UNIST), Ulsan, South Korea
+university: Department of Natural Resources, Faculty of Geoinformation Science and Earth Observation (ITC), University of Twente, Enschede, Netherlands
+non-government non-university non-private:  Farallon Institute, Petaluma, CA, United States
+university:  Institute of Geo-Information & Earth Observation, Pir Mehr Ali Shah Arid Agriculture University, Rawalpindi, Pakistan
+university: Department of Geography, Ludwig-Maximilians University Munich, D-80333 Munich, Luisenstr. 37, Germany
+government:  Atmospheric Chemistry Division, National Center for Atmospheric Research, United States
+university:  Invasive Animals Co-operative Research Centre, University of Canberra, Canberra, Australian Capital Territory, Australia
+university: University of São Paulo, Brazil
+university:  Macquarie Business School, Macquarie University, Sydney, NSW, Australia
+government: Crop Systems and Global Change Laboratory, Agricultural Research Service (ARS), U.S. Department of Agriculture (USDA), Beltsville, 20705, MD, United States
+non-government non-university non-private:  International Water Management Institute (IWMI), 127 Sunil Mawatha, Pelawatte, Battaramulla, Colombo, 10120, Sri Lanka
+university:  Center for Spatial Analysis, College of Atmospheric and Geographic Sciences, University of Oklahoma, Norman, OK, United States
+private:  Brockmann Geomatics Sweden AB Torshamnsgatan 39, Kista, SE-164 40, Sweden
+university: Federal University of Rio Grande do Sul, IPH, RS, Porto Alegre, Brazil
+university:  Civil, Surveying and Environmental Engineering, The University of Newcastle, Callaghan, 2308, Australia
+government: Canadian Forest Service (Pacific Forestry Centre), Natural Resources Canada, Victoria, BC V8Z 1M5, 506 West Burnside Road, Canada
+university: Çukurova Üniversitesi, Fen-Edebiyat Fakültesi Fizik BÖIümü, 01330, Balcah, Adana-TOrkiye, Turkey
+university:  Swedish University of Agricultural Sciences, Department of Soil and Environment, Lennart Hjelms väg 9, Uppsala, 750 05, Sweden
+government:  United Nations Framework Convention on Climate Change (UNFCCC), Bonn, Germany
+government:  USDA, ARS Southeast Area, 141 Experimental Station Road, Stoneville, 38776, MS, United States
+university:  School of Atmospheric Sciences, Sun Yat-sen University, Guangzhou, 510275, China
+university: Department of Geoscience and Natural Resource Management, University of Copenhagen, Copenhagen, Denmark
+university:  National Centre for Earth Observation, Imperial College London, London, SW7 2AZ, United Kingdom
+university:  Department of Geography, Land Use and Environmental Change Institute (LUECI), University of Florida, Gainesville, FL 32611-7315, P. O. Box 117315, United States
+university:  Department of Geography, Midnapore College (Autonomous), West Bengal, Midnapore, India
+government: National Oceanic and Atmospheric Administration, National Marine Fisheries Service, 166 Water Street, Woods Hole, 02543, MA, United States
+university: Instituto Nacional de Pesquisas da Amazônia (INPA), Manaus, AM, Brazil
+non-government non-university non-private:  National Oceanography Centre, Southampton, SO14 3ZH, United Kingdom
+non-government non-university non-private:  UNEP/GEF Project, Hadibo, Socotra, Yemen
+university:  School of Astronomy and Space Science, Univ. of Chinese Academy of Sciences, Beijing, 100039, China
+non-government non-university non-private:  Child Development Centre, Hotel Dieu Hospital, Kingston, Ontario, Canada
+government:  Food and Drug Administration, College Park, MD, United States
+university:  SILVIS Lab, Department of Forest and Wildlife Ecology, University of Wisconsin-Madison, 1630 Linden Drive, Madison, WI, United States
+university:  College of Information Technology, Jilin Agricultural University, Changchun, 130118, China
+government:  Gansu Provincial Engineering Laboratory for National Geographic State Monitoring, Lanzhou, 730700, China
+non-government non-university non-private: Norwegian Institute of Bioeconomy Research (NIBIO), Raveien 9, Ås, NO-1431, Norway
+government:  Jiangxi Provincial Meteorological Observatory, Jiangxi Meteorological Bureau, No.109 ShengfuBeier Road, Nanchang, 330046, China
+government: Laboratory of Transport Pollution Control and Monitoring Technology, Transport Planning and Research Institute, Ministry of Transport of the People’s Republic of China, Beijing, 100028, China
+non-government non-university non-private: Vancouver, WA 98662, 6101 NE 102nd Avenue Apt 5, United States
+university: College of Architecture, Planning, and Landscape Architecture, University of Arizona, Olive Road, 1040 N, Tucson, United States
+non-government non-university non-private:  Hospital das Clinicas da Universidade Federal de Minas Gerais, Belo Horizonte, Brazil
+non-government non-university non-private: International Maize and Wheat Improvement Center (CIMMYT), House No. 10/B, Road No. 53, Gulshan 2, Dhaka, 1212, Bangladesh
+non-government non-university non-private:  Zhejiang Climate Center, Hangzhou, 310017, China
+university: Academic Unit of Serra Talhada, Rural Federal University of Pernambuco, Brazil
+private:  Brazilian Agricultural Research Corporation (Embrapa), Embrapa Soils, Rua Jardim Botânico, 1024, Rio de Janeiro, Brazil
+non-government non-university non-private:  The Nature Conservancy, Brisbane, QLD, Australia
+non-government non-university non-private:  Municipal Institute of Medical Research (IMIM-Hospital del Mar), Barcelona, Spain
+university:  Freie Universität Berlin, Department of Earth Sciences, Institute for Space Sciences, 12165 Berlin, Carl-Heinrich-Becker-Weg 6-10, Germany
+non-government non-university non-private:  ARVALIS - Institut du Végétal, 3 rue Joseph et Marie Hackin, Paris, 75016, France
+university:  University of Geneva, Geneva, Switzerland
+non-government non-university non-private:  The Jane Goodall Institute, 1595 Spring Hill Road, Suite 550, Vienna, 22182, VA, United States
+university:  Environmental Sciences Dept., Faculty of Science, Damietta University, New Damietta, Egypt
+university: Master of GIS & Remote Sensing, University of Tabriz, Tabriz, Iran
+government: National Public Health Institute, 00300 Helsinki, Mannerheimintie 166, Finland
+university: University of Eastern Finland, School of Forest Sciences, Yliopistokatu 7, P.O. Box 111, Joensuu, FI-80101, Finland
+university:  Dept. of Geography and Population Studies, Lupane State University, Bulawayo, Zimbabwe
+non-government non-university non-private:  Shenzhen Environmental Monitoring Center, Shenzhen, 518049, China
+government:  State Environment Protection Key Laboratory of Satellite Remote Sensing, Institute of Remote Sensing and Digital Earth, Chinese Academy of Sciences, Beijing, 100101, China
+non-government non-university non-private:  Ningxia Soil and Water Conservation Monitoring Station, Yin'chuan, China
+university:  Ningbo University, Ningbo, China
+non-government non-university non-private:  I-EM S.r.l., Via Lampredi 45, Livorno, 57121, Italy
+university:  Faculteit Diergeneeskunde, RUG, Merelbeke, Salisburylaan, Belgium
+government:  Space Technologies Research Institute, Scientific and Technological Research Council of Turkey, Ankara, Turkey
+university: Marine Spatial Ecology Lab, School of Biosciences, Hatherly Laboratory, Exeter, United Kingdom
