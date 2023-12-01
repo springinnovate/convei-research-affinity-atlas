@@ -3,22 +3,11 @@ import argparse
 import collections
 import glob
 import logging
-import pickle
-import os
 
 from scipy.cluster.hierarchy import linkage, dendrogram
 import matplotlib.pyplot as plt
 import pandas
-from scipy.optimize import differential_evolution
 import numpy
-from gensim.models import EnsembleLda
-from gensim.models import Phrases
-from gensim.models import phrases
-from gensim import corpora
-from gensim.models import LdaModel
-from nltk.tokenize import RegexpTokenizer
-from nltk.stem.wordnet import WordNetLemmatizer
-from nltk.corpus import stopwords
 from topic_map import ARTICLES_TO_DROP
 from topic_map import scrub_docs
 
@@ -88,7 +77,7 @@ def main():
                         pass
             LOGGER.info(f'{len(abstract_list)} records so far')
 
-    scrubbed_docs = scrub_docs(abstract_list)
+    scrubbed_docs = scrub_docs(abstract_list, 4)
 
     correlation_matrix = []
     for abstract, doc in zip(abstract_list, scrubbed_docs):
@@ -100,14 +89,7 @@ def main():
                 running_sum += doc.count(word)*norm_prob
             prob_vector.append(running_sum)
         correlation_matrix.append(prob_vector)
-        # for debugging to see what the top topics ard
-        # print(abstract)
-        # print(
-        #     list(
-        #         sorted([
-        #             f'{word}: {prob}'
-        #             for word, prob in zip(global_topics, prob_vector) if prob > 0.0],
-        #             key=lambda x: -float(x.split(':')[1]))))
+
 
     correlation_matrix = numpy.array(correlation_matrix)
     print(correlation_matrix)

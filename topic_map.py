@@ -140,6 +140,7 @@ def main():
             csv_file.write('\n')
         csv_file.close()
 
+
 def recluster(x, ensemble):
     eps, min_samples, min_cores = x
     ensemble.recluster(
@@ -149,7 +150,6 @@ def recluster(x, ensemble):
 
     top_words_with_probability = get_top_words_for_each_topic(ensemble, num_words=10)
     return -len(top_words_with_probability)
-
 
 
 def get_top_words_for_each_topic(ensemble, num_words=10):
@@ -170,7 +170,8 @@ def get_top_words_for_each_topic(ensemble, num_words=10):
 
     return top_words_per_topic
 
-def scrub_docs(docs):
+
+def scrub_docs(docs, min_length):
     # Split the documents into tokens.
     # NLTK Stop words
     docs_copy = docs.copy()
@@ -191,7 +192,7 @@ def scrub_docs(docs):
     # Remove numbers, but not words that contain numbers.
     docs_copy = [[token for token in doc if not token.isnumeric()] for doc in docs_copy]
     # Remove words that are too short
-    docs_copy = [[token for token in doc if len(token) > 3] for doc in docs_copy]
+    docs_copy = [[token for token in doc if len(token) >= min_length] for doc in docs_copy]
 
     lemmatizer = WordNetLemmatizer()
     docs_copy = [[lemmatizer.lemmatize(token) for token in doc] for doc in docs_copy]
@@ -211,7 +212,7 @@ def topic_map(docs):
     # Split the documents into tokens.
     # NLTK Stop words
 
-    docs = scrub_docs(docs)
+    docs = scrub_docs(docs, 3)
 
     # Create a dictionary representation of the documents.
     dictionary = corpora.Dictionary(docs)
