@@ -8,17 +8,19 @@ import keyboard
 
 CHOICES = {
     'u': 'university',
-    'g': 'government',
-    'p': 'private',
-    'n': 'non-government non-university non-private',
+    'o': 'other',
 }
+
 
 def print_choices(affiliation):
     print('choose:\n\t' + '\n\t'.join([f'{key}: {classification_id}' for key, classification_id in CHOICES.items()]))
+    print('"ESC" to quit')
     print('\n' + affiliation)
+
 
 def process_key(context, classification_file, affiliation_list):
     def _process_key(event):
+        print(event)
         choice = event.name
         if choice in CHOICES:
             classification_file.write(f'{CHOICES[choice]}: {context["affiliation"]}\n')
@@ -26,7 +28,7 @@ def process_key(context, classification_file, affiliation_list):
             context['count'] += 1
             os.system('cls')
             if context['count'] > 0:
-                print(f'great job, you have classified {context["count"]//2} affiliations so far!')
+                print(f'great job, you have classified {context["count"]} affiliations so far!')
             print_choices(context['affiliation'])
         else:
             print(f'!ERROR, unknown choice "{choice}" try again!\n')
@@ -50,7 +52,7 @@ def main():
         }
         os.system('cls')
         print_choices(affiliation)
-        keyboard.hook(process_key(context, classification_file, affiliation_list))
+        keyboard.on_press(process_key(context, classification_file, affiliation_list))
         keyboard.wait('esc')
         keyboard.unhook_all()
         print(f'classifications in {classified_filename}')
