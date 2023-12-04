@@ -15,6 +15,7 @@ from gensim.models import LdaModel
 from nltk.tokenize import RegexpTokenizer
 from nltk.stem.wordnet import WordNetLemmatizer
 from nltk.corpus import stopwords
+from transformers import T5Tokenizer, T5ForConditionalGeneration
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -54,12 +55,16 @@ def main():
     ensamble_path = f'{args.topic_type}_affiliation_ensamble.pkl'
     if not os.path.exists(ensamble_path):
         affiliation_list = []
-        with open(args.affiliation_file, 'r', encoding='utf-8') as file:
+        with open(args.affiliation_file, 'rb') as file:
             for line in file:
-                topic_type = line.split(':')[0]
-                if topic_type == args.topic_type:
-                    affiliation = ':'.join(line.split(':')[1:]).rstrip().lstrip()
-                    affiliation_list.append(affiliation)
+                try:
+                    line = line.decode('utf-8')
+                    topic_type = line.split(':')[0]
+                    if topic_type == args.topic_type:
+                        affiliation = ':'.join(line.split(':')[1:]).rstrip().lstrip()
+                        affiliation_list.append(affiliation)
+                except:
+                    continue
 
         # Tokenize, remove stopwords and lemmatize the documents.
         ensemble = topic_map(affiliation_list)
@@ -90,29 +95,49 @@ def main():
             mutation=(0.5, 1),
             recombination=0.7,
             workers=-1)
-        print(result)
+        eps = result.x[0]
+        min_samples = round(result.x[1])
+        min_cores = round(result.x[2])
     else:
-        # Print the top words for each topic
-        ensemble.recluster(
-            eps=args.eps,
-            min_samples=int(args.min_samples),
-            min_cores=int(args.min_cores))
-        top_words_with_probability = get_top_words_for_each_topic(ensemble, num_words=args.num_words)
-        print(without_diagonal.min(), without_diagonal.mean(), without_diagonal.max())
-        print(top_words_with_probability)
-        csv_file = open(f'{args.topic_type}_topics.csv', 'w')
-        for topic_num, top_words in enumerate(top_words_with_probability):
-            prob_array = [prob for _, prob in top_words]
-            percentile_value = numpy.percentile(prob_array, 90)
-            quoted_top_words = [
-                f"{word}: {probability}" for (word, probability) in top_words
-                if probability >= percentile_value]
-            print(f"Topic {topic_num}: {', '.join(quoted_top_words)}")
-            csv_file.write(
-                f'{quoted_top_words[0].split(":")[0]},' +
-                ','.join(quoted_top_words))
-            csv_file.write('\n')
-        csv_file.close()
+        eps = args.eps
+        min_samples = args.min_samples
+        min_cores = args.min_cores
+
+    tokenizer = T5Tokenizer.from_pretrained("google/flan-t5-xl")
+    model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-xl")
+
+    # Print the top words for each topic
+    ensemble.recluster(
+        eps=eps,
+        min_samples=int(min_samples),
+        min_cores=int(min_cores))
+    top_words_with_probability = get_top_words_for_each_topic(ensemble, num_words=args.num_words)
+    print(without_diagonal.min(), without_diagonal.mean(), without_diagonal.max())
+    print(top_words_with_probability)
+    csv_file = open(f'{args.topic_type}_topics.csv', 'w')
+    for topic_num, top_words in enumerate(top_words_with_probability):
+        prob_array = [prob for _, prob in top_words]
+        percentile_value = numpy.percentile(prob_array, 90)
+        quoted_top_words = [
+            f"{word}: {probability}" for (word, probability) in top_words
+            if probability >= percentile_value]
+        print(f"Topic {topic_num}: {', '.join(quoted_top_words)}")
+
+        topic_list = [
+            phrase.split(':')[0] for phrase in quoted_top_words]
+        question = (
+                "What are the shared scientific topics in this set of "
+                "words that doesn't include place names: "
+                + ', '.join(topic_list) + '.')
+        input_ids = tokenizer(question, return_tensors="pt").input_ids
+
+        outputs = model.generate(input_ids)
+        summary_phrase = tokenizer.decode(outputs[0])
+        csv_file.write(
+            f'{summary_phrase},' +
+            ','.join(quoted_top_words))
+        csv_file.write('\n')
+    csv_file.close()
 
 
 def recluster(x, ensemble):
