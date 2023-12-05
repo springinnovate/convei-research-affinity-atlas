@@ -74,7 +74,7 @@ def main():
                     tagged_affiliation = Sentence(affiliation)
                     tagger.predict(tagged_affiliation)
                     for entity in tagged_affiliation.get_spans('ner'):
-                        if len(entity.txt) > 5 and entity.get_label().value == 'ORG':
+                        if len(entity.text) > 5 and entity.get_label().value == 'ORG':
                             affiliation_set.add(entity.text)
                             print(f'{index}: {entity.text}')
                 except Exception:
