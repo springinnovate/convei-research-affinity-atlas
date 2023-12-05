@@ -5,8 +5,10 @@ import logging
 import pickle
 import os
 
+from recordlinkage.preprocessing import clean
 from scipy.optimize import differential_evolution
 import numpy
+import pandas
 from gensim.models import EnsembleLda
 from gensim.models import Phrases
 from gensim.models import phrases
@@ -16,6 +18,9 @@ from nltk.tokenize import RegexpTokenizer
 from nltk.stem.wordnet import WordNetLemmatizer
 from nltk.corpus import stopwords
 from transformers import T5Tokenizer, T5ForConditionalGeneration
+
+from flair.data import Sentence
+from flair.models import SequenceTagger
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -37,7 +42,8 @@ def main():
     parser = argparse.ArgumentParser(description='Parse and process affiliation data')
     parser.add_argument(
         'affiliation_file', help='Path to "type0: string..etc, file')
-    parser.add_argument('topic_type', help='university, or research...')
+    parser.add_argument(
+        '--topic_type', nargs='+', help='university, or research...')
     parser.add_argument(
         '--eps', type=float)
     parser.add_argument(
@@ -52,22 +58,31 @@ def main():
     # 3) proportion of area outside of polygon
     args = parser.parse_args()
 
+    tagger = SequenceTagger.load("flair/ner-english-ontonotes-large")
+
     ensamble_path = f'{args.topic_type}_affiliation_ensamble.pkl'
     if not os.path.exists(ensamble_path):
-        affiliation_list = []
-        with open(args.affiliation_file, 'rb') as file:
-            for line in file:
+        affiliation_set = set()
+        with open(args.affiliation_file, 'r', encoding='utf-8', errors='replace') as file:
+            for index, line in enumerate(file):
                 try:
-                    line = line.decode('utf-8')
                     topic_type = line.split(':')[0]
-                    if topic_type == args.topic_type:
-                        affiliation = ':'.join(line.split(':')[1:]).rstrip().lstrip()
-                        affiliation_list.append(affiliation)
-                except:
+                    if topic_type not in args.topic_type:
+                        continue
+                    affiliation = ':'.join(line.split(':')[1:]).rstrip().lstrip()
+                    #affiliation = clean(pandas.Series(affiliation))[0]
+                    tagged_affiliation = Sentence(affiliation)
+                    tagger.predict(tagged_affiliation)
+                    for entity in tagged_affiliation.get_spans('ner'):
+                        if len(entity.txt) > 5 and entity.get_label().value == 'ORG':
+                            affiliation_set.add(entity.text)
+                            print(f'{index}: {entity.text}')
+                except Exception:
+                    raise
+                    print(f'error on {line}')
                     continue
-
         # Tokenize, remove stopwords and lemmatize the documents.
-        ensemble = topic_map(affiliation_list)
+        ensemble = topic_map(list(affiliation_set))
         with open(ensamble_path, 'wb') as file:
             pickle.dump(ensemble, file)
     else:
@@ -198,29 +213,24 @@ def scrub_docs(docs, min_length):
     return docs_copy
 
 
-def make_bigram(docs):
-    # Add bigrams and trigrams to docs (only ones that appear 20 times or more).
-    bigram = Phrases(
-        docs, min_count=20, connector_words=phrases.ENGLISH_CONNECTOR_WORDS)
-    return bigram
-    # for idx in range(len(docs)):
-    #     for token in bigram[docs[idx]]:
-    #         if '_' in token:
-    #             # Token is a bigram, add to document.
-    #             docs[idx].append(token)
-
-
 def topic_map(docs):
     # Split the documents into tokens.
     # NLTK Stop words
 
     docs = scrub_docs(docs, 3)
+    print(docs)
 
     # Create a dictionary representation of the documents.
-    dictionary = corpora.Dictionary(docs)
-    dictionary.filter_extremes(no_below=20, no_above=0.5)  # This is optional, but it helps in refining the dictionary
-    corpus = [dictionary.doc2bow(text) for text in docs]
-
+    filter_extremes = True
+    while True:
+        dictionary = corpora.Dictionary(docs)
+        if filter_extremes:
+            dictionary.filter_extremes(no_below=20, no_above=0.5)  # This is optional, but it helps in refining the dictionary
+        corpus = [dictionary.doc2bow(text) for text in docs]
+        if len(dictionary) > 0:
+            break
+        else:
+            filter_extremes = False
     LOGGER.info('Number of unique tokens: %d' % len(dictionary))
     LOGGER.info('Number of documents: %d' % len(corpus))
 
