@@ -51,7 +51,7 @@ def main():
             for label, score in zip(result['labels'], result['scores']):
                 score_sum_threshold -= score
                 file.write(f'{label}: {score}\n')
-                if score < 0:
+                if score_sum_threshold < 0:
                     break
             file.flush()
 
