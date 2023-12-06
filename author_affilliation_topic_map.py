@@ -62,25 +62,29 @@ def main():
 
     ensamble_path = f'{args.topic_type}_affiliation_ensamble.pkl'
     if not os.path.exists(ensamble_path):
-        affiliation_set = set()
-        with open(args.affiliation_file, 'r', encoding='utf-8', errors='replace') as file:
-            for index, line in enumerate(file):
-                try:
-                    topic_type = line.split(':')[0]
-                    if topic_type not in args.topic_type:
+        affiliation_list_path = '%s_list%s' % os.path.splitext(ensamble_path)
+        if os.path.exists(affiliation_list_path):
+            with open(affiliation_list_path, 'rb') as file:
+                affiliation_set = pickle.load(file)
+        else:
+            affiliation_set = set()
+            with open(args.affiliation_file, 'r', encoding='utf-8', errors='replace') as file:
+                for index, line in enumerate(file):
+                    try:
+                        topic_type = line.split(':')[0]
+                        if topic_type not in args.topic_type:
+                            continue
+                        affiliation = ':'.join(line.split(':')[1:]).rstrip().lstrip()
+                        tagged_affiliation = Sentence(affiliation)
+                        tagger.predict(tagged_affiliation)
+                        for entity in tagged_affiliation.get_spans('ner'):
+                            if len(entity.text) > 5 and entity.get_label().value == 'ORG':
+                                affiliation_set.add(entity.text)
+                                print(f'{index}: {entity.text}')
+                    except Exception:
+                        raise
+                        print(f'error on {line}')
                         continue
-                    affiliation = ':'.join(line.split(':')[1:]).rstrip().lstrip()
-                    #affiliation = clean(pandas.Series(affiliation))[0]
-                    tagged_affiliation = Sentence(affiliation)
-                    tagger.predict(tagged_affiliation)
-                    for entity in tagged_affiliation.get_spans('ner'):
-                        if len(entity.text) > 5 and entity.get_label().value == 'ORG':
-                            affiliation_set.add(entity.text)
-                            print(f'{index}: {entity.text}')
-                except Exception:
-                    raise
-                    print(f'error on {line}')
-                    continue
         # Tokenize, remove stopwords and lemmatize the documents.
         ensemble = topic_map(list(affiliation_set))
         with open(ensamble_path, 'wb') as file:
