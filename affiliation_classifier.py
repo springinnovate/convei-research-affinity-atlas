@@ -46,8 +46,13 @@ def main():
             print(f'processing {affiliation}')
             file.write(f'{affiliation}\n')
             result = classifier(affiliation, candidate_labels)
+            score_sum_threshold = 0.9*sum(result['scores'])
+
             for label, score in zip(result['labels'], result['scores']):
+                score_sum_threshold -= score
                 file.write(f'{label}: {score}\n')
+                if score < 0:
+                    break
             file.flush()
 
 
