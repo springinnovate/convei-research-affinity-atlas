@@ -1,6 +1,7 @@
 import argparse
 import pickle
 import logging
+import os
 
 from transformers import pipeline
 
@@ -19,23 +20,27 @@ def main():
     parser.add_argument('affiliation_pickle_list', help='path to affiliation pickle list')
     args = parser.parse_args()
 
+    classifier = pipeline(
+        "zero-shot-classification", model="facebook/bart-large-mnli")
+
     print('load affilation_list')
     with open(args.affiliation_pickle_list, 'rb') as file:
         affilation_list = pickle.load(file)
 
     print('load candidate_labels')
-    with open('data/candidate_labels_lig.txt', 'r') as file:
+    with open('data/affiliation_tags.txt', 'r') as file:
         candidate_labels = ','.join([
             v for v in file.read().split('\n')
             if len(v) > 0])
     print(candidate_labels)
 
-    classifier = pipeline(
-        "zero-shot-classification", model="facebook/bart-large-mnli")
-    affiliation = next(iter(affilation_list))
-    print(f'classify {affiliation}')
-    result = classifier(affiliation, candidate_labels)
-    print(result)
+    with open('%s_classified%s' % os.path.splitext(args.affiliation_pickle_list)[0]) as file:
+        for affiliation in affilation_list:
+            file.write(f'{affiliation}\n')
+            result = classifier(affiliation, candidate_labels)
+            for label, score in zip(result['labels'], result['scores']):
+                file.write(f'{label}: {score}\n')
+            file.flush()
 
 
 if __name__ == '__main__':
