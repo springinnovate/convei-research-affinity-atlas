@@ -28,8 +28,9 @@ def main():
     print('load affilation_list')
     affilation_set = set()
     for affiliation_pickle_file in glob.glob(args.affiliation_pickle_list):
-        with open(args.affiliation_pickle_list, 'rb') as file:
-            affilation_set = affilation_set.union(pickle.load(file))
+        with open(args.affiliation_pickle_list, 'r') as file:
+            for line in file:
+                affilation_set.add(line.rstrip().lstrip())
     affilation_list = list(affilation_set)
     affilation_list = random.shuffle(affilation_list)
     print('load candidate_labels')
