@@ -224,8 +224,7 @@ def topic_map(docs):
     # NLTK Stop words
 
     docs = scrub_docs(docs, 3)
-    print(docs)
-
+    docs = [doc for doc in docs if len(doc) >= 3]
     # Create a dictionary representation of the documents.
     filter_extremes = True
     while True:
@@ -244,22 +243,22 @@ def topic_map(docs):
 
     ensemble_workers = 4
     num_models = 8
-    num_topics = 100
-    passes = 20
+    passes = 40
     distance_workers = 4
+    masking_threshold = 1.5
 
     # Make an index to word dictionary.
-    temp = dictionary[0]  # This is only to "load" the dictionary.
+    #temp = dictionary[0]  # This is only to "load" the dictionary.
 
     ensemble = EnsembleLda(
+        topic_model_class=ChunkerLdaModel,
         corpus=corpus,
         id2word=dictionary,
-        num_topics=num_topics,
         passes=passes,
         num_models=num_models,
         ensemble_workers=ensemble_workers,
         distance_workers=distance_workers,
-        topic_model_class=ChunkerLdaModel
+        masking_threshold=masking_threshold
     )
 
     return ensemble
