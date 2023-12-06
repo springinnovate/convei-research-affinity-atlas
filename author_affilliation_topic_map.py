@@ -5,8 +5,10 @@ import logging
 import pickle
 import os
 
+from recordlinkage.preprocessing import clean
 from scipy.optimize import differential_evolution
 import numpy
+import pandas
 from gensim.models import EnsembleLda
 from gensim.models import Phrases
 from gensim.models import phrases
@@ -15,6 +17,10 @@ from gensim.models import LdaModel
 from nltk.tokenize import RegexpTokenizer
 from nltk.stem.wordnet import WordNetLemmatizer
 from nltk.corpus import stopwords
+from transformers import T5Tokenizer, T5ForConditionalGeneration
+
+from flair.data import Sentence
+from flair.models import SequenceTagger
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -36,7 +42,8 @@ def main():
     parser = argparse.ArgumentParser(description='Parse and process affiliation data')
     parser.add_argument(
         'affiliation_file', help='Path to "type0: string..etc, file')
-    parser.add_argument('topic_type', help='university, or research...')
+    parser.add_argument(
+        '--topic_type', nargs='+', help='university, or research...')
     parser.add_argument(
         '--eps', type=float)
     parser.add_argument(
@@ -51,18 +58,37 @@ def main():
     # 3) proportion of area outside of polygon
     args = parser.parse_args()
 
+    tagger = SequenceTagger.load("flair/ner-english-ontonotes-large")
+
     ensamble_path = f'{args.topic_type}_affiliation_ensamble.pkl'
     if not os.path.exists(ensamble_path):
-        affiliation_list = []
-        with open(args.affiliation_file, 'r', encoding='utf-8') as file:
-            for line in file:
-                topic_type = line.split(':')[0]
-                if topic_type == args.topic_type:
-                    affiliation = ':'.join(line.split(':')[1:]).rstrip().lstrip()
-                    affiliation_list.append(affiliation)
-
-        # Tokenize, remove stopwords and lemmatize the documents.
-        ensemble = topic_map(affiliation_list)
+        affiliation_list_path = '%s_list%s' % os.path.splitext(ensamble_path)
+        if os.path.exists(affiliation_list_path):
+            with open(affiliation_list_path, 'rb') as file:
+                affiliation_set = pickle.load(file)
+        else:
+            affiliation_set = set()
+            with open(args.affiliation_file, 'r', encoding='utf-8', errors='replace') as file:
+                for index, line in enumerate(file):
+                    try:
+                        topic_type = line.split(':')[0]
+                        if topic_type not in args.topic_type:
+                            continue
+                        affiliation = ':'.join(line.split(':')[1:]).rstrip().lstrip()
+                        tagged_affiliation = Sentence(affiliation)
+                        tagger.predict(tagged_affiliation)
+                        for entity in tagged_affiliation.get_spans('ner'):
+                            if len(entity.text) > 5 and entity.get_label().value == 'ORG':
+                                affiliation_set.add(entity.text)
+                                print(f'{index}: {entity.text}')
+                    except Exception:
+                        raise
+                        print(f'error on {line}')
+                        continue
+            # Tokenize, remove stopwords and lemmatize the documents.
+            with open(affiliation_list_path, 'wb') as file:
+                pickle.dump(affiliation_set, file)
+        ensemble = topic_map(list(affiliation_set))
         with open(ensamble_path, 'wb') as file:
             pickle.dump(ensemble, file)
     else:
@@ -90,29 +116,49 @@ def main():
             mutation=(0.5, 1),
             recombination=0.7,
             workers=-1)
-        print(result)
+        eps = result.x[0]
+        min_samples = round(result.x[1])
+        min_cores = round(result.x[2])
     else:
-        # Print the top words for each topic
-        ensemble.recluster(
-            eps=args.eps,
-            min_samples=int(args.min_samples),
-            min_cores=int(args.min_cores))
-        top_words_with_probability = get_top_words_for_each_topic(ensemble, num_words=args.num_words)
-        print(without_diagonal.min(), without_diagonal.mean(), without_diagonal.max())
-        print(top_words_with_probability)
-        csv_file = open(f'{args.topic_type}_topics.csv', 'w')
-        for topic_num, top_words in enumerate(top_words_with_probability):
-            prob_array = [prob for _, prob in top_words]
-            percentile_value = numpy.percentile(prob_array, 90)
-            quoted_top_words = [
-                f"{word}: {probability}" for (word, probability) in top_words
-                if probability >= percentile_value]
-            print(f"Topic {topic_num}: {', '.join(quoted_top_words)}")
-            csv_file.write(
-                f'{quoted_top_words[0].split(":")[0]},' +
-                ','.join(quoted_top_words))
-            csv_file.write('\n')
-        csv_file.close()
+        eps = args.eps
+        min_samples = args.min_samples
+        min_cores = args.min_cores
+
+    tokenizer = T5Tokenizer.from_pretrained("google/flan-t5-xl")
+    model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-xl")
+
+    # Print the top words for each topic
+    ensemble.recluster(
+        eps=eps,
+        min_samples=int(min_samples),
+        min_cores=int(min_cores))
+    top_words_with_probability = get_top_words_for_each_topic(ensemble, num_words=args.num_words)
+    print(without_diagonal.min(), without_diagonal.mean(), without_diagonal.max())
+    print(top_words_with_probability)
+    csv_file = open(f'{args.topic_type}_topics.csv', 'w')
+    for topic_num, top_words in enumerate(top_words_with_probability):
+        prob_array = [prob for _, prob in top_words]
+        percentile_value = numpy.percentile(prob_array, 90)
+        quoted_top_words = [
+            f"{word}: {probability}" for (word, probability) in top_words
+            if probability >= percentile_value]
+        print(f"Topic {topic_num}: {', '.join(quoted_top_words)}")
+
+        topic_list = [
+            phrase.split(':')[0] for phrase in quoted_top_words]
+        question = (
+                "What are the shared scientific topics in this set of "
+                "words that doesn't include place names: "
+                + ', '.join(topic_list) + '.')
+        input_ids = tokenizer(question, return_tensors="pt").input_ids
+
+        outputs = model.generate(input_ids)
+        summary_phrase = tokenizer.decode(outputs[0])
+        csv_file.write(
+            f'{summary_phrase},' +
+            ','.join(quoted_top_words))
+        csv_file.write('\n')
+    csv_file.close()
 
 
 def recluster(x, ensemble):
@@ -173,29 +219,23 @@ def scrub_docs(docs, min_length):
     return docs_copy
 
 
-def make_bigram(docs):
-    # Add bigrams and trigrams to docs (only ones that appear 20 times or more).
-    bigram = Phrases(
-        docs, min_count=20, connector_words=phrases.ENGLISH_CONNECTOR_WORDS)
-    return bigram
-    # for idx in range(len(docs)):
-    #     for token in bigram[docs[idx]]:
-    #         if '_' in token:
-    #             # Token is a bigram, add to document.
-    #             docs[idx].append(token)
-
-
 def topic_map(docs):
     # Split the documents into tokens.
     # NLTK Stop words
 
     docs = scrub_docs(docs, 3)
-
+    docs = [doc for doc in docs if len(doc) >= 3]
     # Create a dictionary representation of the documents.
-    dictionary = corpora.Dictionary(docs)
-    dictionary.filter_extremes(no_below=20, no_above=0.5)  # This is optional, but it helps in refining the dictionary
-    corpus = [dictionary.doc2bow(text) for text in docs]
-
+    filter_extremes = True
+    while True:
+        dictionary = corpora.Dictionary(docs)
+        if filter_extremes:
+            dictionary.filter_extremes(no_below=20, no_above=0.5)  # This is optional, but it helps in refining the dictionary
+        corpus = [dictionary.doc2bow(text) for text in docs]
+        if len(dictionary) > 0:
+            break
+        else:
+            filter_extremes = False
     LOGGER.info('Number of unique tokens: %d' % len(dictionary))
     LOGGER.info('Number of documents: %d' % len(corpus))
 
@@ -203,22 +243,22 @@ def topic_map(docs):
 
     ensemble_workers = 4
     num_models = 8
-    num_topics = 100
-    passes = 20
+    passes = 40
     distance_workers = 4
+    masking_threshold = 1.5
 
     # Make an index to word dictionary.
-    temp = dictionary[0]  # This is only to "load" the dictionary.
+    #temp = dictionary[0]  # This is only to "load" the dictionary.
 
     ensemble = EnsembleLda(
+        topic_model_class=ChunkerLdaModel,
         corpus=corpus,
         id2word=dictionary,
-        num_topics=num_topics,
         passes=passes,
         num_models=num_models,
         ensemble_workers=ensemble_workers,
         distance_workers=distance_workers,
-        topic_model_class=ChunkerLdaModel
+        masking_threshold=masking_threshold
     )
 
     return ensemble
