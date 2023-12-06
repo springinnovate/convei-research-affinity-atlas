@@ -1,7 +1,17 @@
 import argparse
 import pickle
+import logging
 
 from transformers import pipeline
+
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format=(
+        '%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s'
+        ' [%(funcName)s:%(lineno)d] %(message)s'))
+logging.getLogger('taskgraph').setLevel(logging.INFO)
+LOGGER = logging.getLogger(__name__)
 
 
 def main():
@@ -14,10 +24,11 @@ def main():
         affilation_list = pickle.load(file)
 
     print('load candidate_labels')
-    with open('data/candidate_labels.txt', 'r') as file:
-        candidate_labels = [
+    with open('data/candidate_labels_lig.txt', 'r') as file:
+        candidate_labels = ','.join([
             v for v in file.read().split('\n')
-            if len(v) > 0]
+            if len(v) > 0])
+    print(candidate_labels)
 
     classifier = pipeline(
         "zero-shot-classification", model="facebook/bart-large-mnli")
