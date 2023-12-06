@@ -85,7 +85,9 @@ def main():
                         raise
                         print(f'error on {line}')
                         continue
-        # Tokenize, remove stopwords and lemmatize the documents.
+            # Tokenize, remove stopwords and lemmatize the documents.
+            with open(affiliation_list_path, 'wb') as file:
+                pickle.dump(affiliation_set, file)
         ensemble = topic_map(list(affiliation_set))
         with open(ensamble_path, 'wb') as file:
             pickle.dump(ensemble, file)
