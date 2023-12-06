@@ -45,7 +45,8 @@ def main():
         for affiliation in affilation_list:
             print(f'processing {affiliation}')
             file.write(f'{affiliation}\n')
-            result = classifier(affiliation, candidate_labels)
+            result = classifier(
+                affiliation, candidate_labels, multi_label=True)
             score_sum_threshold = 0.9*sum(result['scores'])
 
             for label, score in zip(result['labels'], result['scores']):
