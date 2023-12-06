@@ -1,7 +1,9 @@
 import argparse
-import pickle
+import glob
 import logging
 import os
+import pickle
+import random
 
 from transformers import pipeline
 
@@ -24,9 +26,12 @@ def main():
         "zero-shot-classification", model="facebook/bart-large-mnli")
 
     print('load affilation_list')
-    with open(args.affiliation_pickle_list, 'rb') as file:
-        affilation_list = pickle.load(file)
-
+    affilation_set = set()
+    for affiliation_pickle_file in glob.glob(args.affiliation_pickle_list):
+        with open(args.affiliation_pickle_list, 'rb') as file:
+            affilation_set = affilation_set.union(pickle.load(file))
+    affilation_list = list(affilation_set)
+    affilation_list = random.shuffle(affilation_list)
     print('load candidate_labels')
     with open('data/affiliation_tags.txt', 'r') as file:
         candidate_labels = ','.join([
