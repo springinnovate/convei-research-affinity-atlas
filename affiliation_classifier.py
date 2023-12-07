@@ -59,6 +59,8 @@ def main():
                 org_components = affiliation
             result = classifier(
                 org_components, candidate_labels, multi_label=True)
+            if len(result) > 20:
+                continue
             for label, score in zip(result['labels'], result['scores']):
                 if score < 0.8:
                     break
