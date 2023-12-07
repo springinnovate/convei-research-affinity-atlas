@@ -66,12 +66,15 @@ def main():
             #         org_components += f'{entity.text} '
             file.write(f'{affiliation}\n')
             file.write(f'{org_components}\n')
+            if len(org_components) == 0:
+                org_components = affiliation
             result = classifier(
                 org_components, candidate_labels, multi_label=True)
             for label, score in zip(result['labels'], result['scores']):
                 if score < 0.8:
                     break
                 file.write(f'{label}: {score}\n')
+            file.write('\n')
             file.flush()
 
 
