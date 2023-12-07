@@ -6,6 +6,8 @@ import pickle
 import random
 
 from transformers import pipeline
+from flair.data import Sentence
+from flair.models import SequenceTagger
 
 
 logging.basicConfig(
@@ -40,20 +42,25 @@ def main():
 
     classifier = pipeline(
         "zero-shot-classification", model="facebook/bart-large-mnli")
+    tagger = SequenceTagger.load("flair/ner-english-ontonotes-large")
 
     with open('%s_classified%s' % os.path.splitext(args.affiliation_pickle_list), 'w', encoding='utf-8') as file:
         for affiliation in affilation_list:
             print(f'processing {affiliation}')
+            tagged_affiliation = Sentence(affiliation)
+            tagger.predict(tagged_affiliation)
+            org_components = ''
+            for entity in tagged_affiliation.get_spans('ner'):
+                if len(entity.text) > 5 and entity.get_label().value == 'ORG':
+                    org_components += f'{entity.text} '
             file.write(f'{affiliation}\n')
+            file.write(f'{org_components}\n')
             result = classifier(
-                affiliation, candidate_labels, multi_label=True)
-            score_sum_threshold = 0.9*sum(result['scores'])
-
+                org_components, candidate_labels, multi_label=True)
             for label, score in zip(result['labels'], result['scores']):
-                score_sum_threshold -= score
-                file.write(f'{label}: {score}\n')
-                if score_sum_threshold < 0:
+                if score < 0.8:
                     break
+                file.write(f'{label}: {score}\n')
             file.flush()
 
 
