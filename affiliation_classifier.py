@@ -9,6 +9,8 @@ from transformers import pipeline
 from flair.data import Sentence
 from flair.models import SequenceTagger
 
+from transformers import AutoTokenizer, AutoModelForTokenClassification
+
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -42,17 +44,26 @@ def main():
 
     classifier = pipeline(
         "zero-shot-classification", model="facebook/bart-large-mnli")
-    tagger = SequenceTagger.load("flair/ner-english-ontonotes-large")
+    #tagger = SequenceTagger.load("flair/ner-english-ontonotes-large")
 
+    tokenizer = AutoTokenizer.from_pretrained("dslim/bert-base-NER")
+    tagger_model = AutoModelForTokenClassification.from_pretrained("dslim/bert-base-NER")
+
+    token_tagger = pipeline("ner", model=tagger_model, tokenizer=tokenizer)
     with open('%s_classified%s' % os.path.splitext(args.affiliation_pickle_list), 'w', encoding='utf-8') as file:
         for affiliation in affilation_list:
             print(f'processing {affiliation}')
-            tagged_affiliation = Sentence(affiliation)
-            tagger.predict(tagged_affiliation)
             org_components = ''
-            for entity in tagged_affiliation.get_spans('ner'):
-                if len(entity.text) > 5 and entity.get_label().value == 'ORG':
-                    org_components += f'{entity.text} '
+            for entity in token_tagger(affiliation):
+                if entity['entity_group'] in ['ORG', 'MIS']:
+                    org_components += f'{entity["word"]} '
+
+
+            # tagged_affiliation = Sentence(affiliation)
+            # tagger.predict(tagged_affiliation)
+            # for entity in tagged_affiliation.get_spans('ner'):
+            #     if len(entity.text) > 5 and entity.get_label().value == 'ORG':
+            #         org_components += f'{entity.text} '
             file.write(f'{affiliation}\n')
             file.write(f'{org_components}\n')
             result = classifier(
