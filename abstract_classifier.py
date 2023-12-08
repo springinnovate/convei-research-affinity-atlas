@@ -1,0 +1,97 @@
+import argparse
+import glob
+import logging
+import os
+import pickle
+import random
+import time
+
+from transformers import pipeline
+from flair.data import Sentence
+from flair.models import SequenceTagger
+
+from transformers import AutoTokenizer, AutoModelForTokenClassification
+
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format=(
+        '%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s'
+        ' [%(funcName)s:%(lineno)d] %(message)s'))
+logging.getLogger('taskgraph').setLevel(logging.INFO)
+LOGGER = logging.getLogger(__name__)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Affiliation classifier')
+    parser.add_argument('affiliation_pickle_list', help='path to affiliation text list')
+    parser.add_argument('affiliation_tag_file', help='path to affiliation tags')
+    parser.add_argument('--target_path', help='target classified table')
+    args = parser.parse_args()
+
+
+    print('load affilation_list')
+    affilation_set = set()
+    for affiliation_pickle_file in glob.glob(args.affiliation_pickle_list):
+        with open(args.affiliation_pickle_list, 'r', encoding='utf-8') as file:
+            for line in file:
+                affilation_set.add(line.rstrip().lstrip())
+    affilation_list = list(affilation_set)
+    random.shuffle(affilation_list)
+    print('load candidate_labels')
+    with open('data/affiliation_tags.txt', 'r') as file:
+        candidate_labels = ', '.join([
+            v for v in file.read().split('\n')
+            if len(v) > 0])
+    print(candidate_labels)
+
+    classifier = pipeline(
+        "zero-shot-classification", model="facebook/bart-large-mnli")
+    token_tagger = SequenceTagger.load("flair/ner-english-ontonotes-large")
+
+    #tokenizer = AutoTokenizer.from_pretrained("dslim/bert-base-NER")
+    #tagger_model = AutoModelForTokenClassification.from_pretrained("dslim/bert-base-NER")
+
+    #token_tagger = pipeline("token-classification", model="dslim/bert-base-NER")
+
+    #token_tagger = pipeline("ner", model=tagger_model, tokenizer=tokenizer)
+    target_path = args.target_path
+    if target_path is None:
+        target_path = '%s_classified%s' % os.path.splitext(args.affiliation_pickle_list)
+
+    with open(target_path, 'w', encoding='utf-8') as file:
+        for affiliation in affilation_list:
+            start_time = time.time()
+            print(f'processing {affiliation}')
+            org_components = ''
+            tagged_result = token_tagger(affiliation)
+            print(tagged_result)
+            for entity in tagged_result:
+                print(entity)
+                if entity['entity_group'] in ['ORG', 'MIS']:
+                    org_components += f'{entity["word"]} '
+
+            # tagged_affiliation = Sentence(affiliation)
+            # tagger.predict(tagged_affiliation)
+            # for entity in tagged_affiliation.get_spans('ner'):
+            #     if len(entity.text) > 5 and entity.get_label().value == 'ORG':
+            #         org_components += f'{entity.text} '
+            file.write(f'{affiliation}\n')
+            file.write(f'{org_components}\n')
+            if len(org_components) == 0:
+                org_components = affiliation
+            result = classifier(
+                org_components, candidate_labels, multi_label=True)
+            if len(result) > 20:
+                continue
+            for label, score in zip(result['labels'], result['scores']):
+                if score < 0.8:
+                    break
+                file.write(f'{label}: {score}\n')
+            file.write('\n')
+            file.flush()
+            print(f'took {time.time()-start_time}s to tag')
+
+
+if __name__ == '__main__':
+    main()
