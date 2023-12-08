@@ -8,12 +8,10 @@ climate
 coastal
 community
 conservation
-development
 disaster
 disease
 energy
 environment
-equity
 financial
 fire
 fish
