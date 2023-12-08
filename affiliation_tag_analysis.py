@@ -4,21 +4,39 @@ which affiliation tags are working with which other ones? (like when is water wo
 """
 import argparse
 import collections
-
+import re
 
 def main():
     parser = argparse.ArgumentParser(description='Parse and process affiliation data')
     parser.add_argument(
         'classified_affiliation_file',
-        help='Path file with affilliation, name, and tags')
+        help='Path file with affiliation, name, and tags')
+    parser.add_argument(
+        'bib_file', help='path to raw bibilography file')
+    parser.add_argument('--filter_affiliation', nargs='+')
+    parser.add_argument('--show_affiliations', action='store_true')
+    parser.add_argument('--confidence_threshold', type=float)
     args = parser.parse_args()
+
+    # give an affiliation and see all the others associated with it
+    affiliation_sets = collections.defaultdict(list)
+    with open(args.bib_file, 'r', encoding='utf-8') as file:
+        for line in file:
+            line = line.lstrip()
+            if not line.startswith('affiliations'):
+                continue
+            affiliation_list = set([
+                x.lstrip().rstrip() for x in
+                re.search(r'\{(.*)\}', line).group(1).split(';')])
+            for affiliation in affiliation_list:
+                affiliation_sets[affiliation].append(affiliation_list)
 
     affiliation_map = {}
     tag_to_affiliation_map = collections.defaultdict(list)
-    with open(args.classified_affiliation_file, 'rb', encoding='utf-8') as file:
+    with open(args.classified_affiliation_file, 'r', encoding='utf-8') as file:
         while True:
             affiliation_dict = {}
-            affiliation = file.readline()
+            affiliation = file.readline().lstrip().rstrip()
             affiliation_dict['affiliation'] = affiliation
             if affiliation == '':
                 break
@@ -27,14 +45,67 @@ def main():
             while True:
                 try:
                     tag, prob = file.readline().split(':')
+                    if args.confidence_threshold and float(prob) < args.confidence_threshold:
+                        continue
                     affiliation_dict['tags'][tag] = prob
                     tag_to_affiliation_map[tag].append(affiliation)
                 except ValueError:
                     # can't split, so blank line, next section
                     break
                 affiliation_map[affiliation] = affiliation_dict
-    for tag, affiliation_list in tag_to_affiliation_map.items():
-        print(f'{tag}: {len(affiliation_list)}')
+
+    valid_affiliation_set = set()
+    if not args.filter_affiliation:
+        for tag, affiliation_list in sorted(
+                tag_to_affiliation_map.items(),
+                key=lambda x: -len(x[1])):
+            print(f'{tag}: {len(affiliation_list)}')
+    else:
+        tag_count = collections.defaultdict(int)
+        for affiliation_dict in affiliation_map.values():
+            valid = True
+            for required_tag in args.filter_affiliation:
+                if required_tag.startswith('not_'):
+                    if required_tag[4:] in affiliation_dict['tags']:
+                        valid = False
+                        break
+                elif required_tag not in affiliation_dict['tags']:
+                    valid = False
+                    break
+            if not valid:
+                continue
+            valid_affiliation_set.add(affiliation_dict['affiliation'])
+            for tag_id in affiliation_dict['tags']:
+                tag_count[tag_id] += 1
+        for tag, count in sorted(tag_count.items(), key=lambda x: -x[1]):
+            print(f'{tag}: {count}')
+
+    related_affiliation_set = set()
+    for affiliation in valid_affiliation_set:
+        for local_affiliation_set in affiliation_sets[affiliation]:
+            for local_affiliation in local_affiliation_set:
+                if local_affiliation in valid_affiliation_set:
+                    continue
+                related_affiliation_set.add(local_affiliation)
+
+    print('\nrelated affillations topic count:')
+    tag_count = collections.defaultdict(int)
+    for affiliation, affiliation_dict in affiliation_map.items():
+        if affiliation not in related_affiliation_set:
+            continue
+        for tag_id in affiliation_dict['tags']:
+            tag_count[tag_id] += 1
+    for tag, count in sorted(tag_count.items(), key=lambda x: -x[1]):
+        print(f'{tag}: {count}')
+
+    if args.show_affiliations:
+        print('\nAFFILIATIONS:')
+        for affiliation in sorted(valid_affiliation_set):
+            print(affiliation.lstrip().rstrip())
+
+        print('\nRELATED AFFILATIONS:')
+        for related_affiliation in sorted(related_affiliation_set):
+            print(related_affiliation)
 
 
 if __name__ == '__main__':
