@@ -63,7 +63,7 @@ def main():
     print(candidate_labels)
 
     classifier = pipeline(
-        "zero-shot-classification", model="facebook/bart-large-mnli")
+        "zero-shot-classification", model="DeBERTa-v3-base-mnli-fever-anli")
 
     target_path = args.target_path
     if target_path is None:
