@@ -6,17 +6,16 @@ building
 business
 climate
 coastal
-community
 conservation
 disaster
 disease
 energy
 environment
+environmental justice
 financial
 fire
 fish
 food
-justice
 land
 mining
 monitoring
@@ -24,10 +23,12 @@ ocean
 people
 pollution
 population
+poverty
 public health
-restoration
+social equity
 tourism
 transportation
 urban
 water
+weather
 wildlife
