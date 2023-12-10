@@ -5,14 +5,19 @@ import os
 import pickle
 import random
 import time
+import torch
 import re
+import warnings
 
+#from optimum.pipelines import pipeline
 from transformers import pipeline
 from flair.data import Sentence
 from flair.models import SequenceTagger
 
 from transformers import AutoTokenizer, AutoModelForTokenClassification
 
+
+warnings.filterwarnings("ignore", category=UserWarning, module="torch.utils.data")
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -24,6 +29,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 def main():
+    print(torch.cuda.is_available())
     parser = argparse.ArgumentParser(description='Affiliation classifier')
     parser.add_argument('bib_file', help='path to bibliography list')
     parser.add_argument('abstract_tag_file', help='path to abstract tags')
@@ -37,18 +43,24 @@ def main():
         abstract_str = None
         article_id = None
         for line in file:
-            if '@ARTICLE{' in line:
-                if abstract_str is not None or affiliation_str is not None:
-                    print(f'WARNING: "{article_id}" had these were left over', abstract_str, affiliation_str)
-                article_id = re.search('@ARTICLE{(.*),', line).group(1)
+            try:
+                #if abstract_str is not None or affiliation_str is not None:
+                #    print(f'WARNING: "{article_id}" had these were left over', abstract_str, affiliation_str)
+                article_id = re.search('@[^{]+{(.*),', line).group(1)
+                if article_id is None:
+                    print(f'ERROR: {line}')
                 affiliation_str = None
                 abstract_str = None
                 continue
-            elif 'abstract =' in line:
+            except:
+                pass
+            if 'abstract =' in line:
                 abstract_str = re.search('{(.*)}', line).group(1)
             elif 'affiliations =' in line:
                 affiliation_str = re.search('{(.*)}', line).group(1)
             if abstract_str and affiliation_str:
+                if article_id is None:
+                    print(f'ERROR: {abstract_str}')
                 affilation_set.add((article_id, affiliation_str, abstract_str))
                 article_id = None
                 affiliation_str = None
@@ -62,26 +74,44 @@ def main():
             if len(v) > 0])
     print(candidate_labels)
 
+    batch_size = 25
     classifier = pipeline(
-        "zero-shot-classification", model="MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli")
+        "zero-shot-classification",
+        model="MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli",
+        device=0, batch_size=batch_size, truncation=True)
+    print(classifier.model.device)
 
     target_path = args.target_path
     if target_path is None:
         target_path = '%s_classified%s' % os.path.splitext(args.affiliation_pickle_list)
 
-    with open(target_path, 'w', encoding='utf-8') as file:
-        for article_id, affiliation_str, abstract_str in affilation_set:
-            start_time = time.time()
-            print(f'processing {article_id}')
 
+    total_time = 0
+    events = 0
+    with open(target_path, 'w', encoding='utf-8') as file:
+        print(f'opening {target_path} for writing {len(affilation_set)} affiliations')
+        abstract_str_list = [x[2] for x in affilation_set]
+        article_id_affiliation = []
+        abstract_batch = []
+        start_time = time.time()
+        def affiliation_generator():
+            for _, affiliation_str, _ in affilation_set:
+                yield affiliation_str
+        for (article_id, affiliation_str, abstract_str), result in zip(
+                affilation_set,
+                classifier(affiliation_generator(), candidate_labels, multi_label=True)):
             file.write(f'{article_id}\n{affiliation_str}\n{abstract_str}\n')
-            result = classifier(
-                abstract_str, candidate_labels, multi_label=True)
             for label, score in zip(result['labels'], result['scores']):
                 file.write(f'{label}: {score}\n')
             file.write('\n')
             file.flush()
-            print(f'took {time.time()-start_time}s to tag')
+            abstract_batch = []
+            article_id_affiliation = []
+            current_time = (time.time()-start_time)
+            events += 1
+            total_time += current_time
+            print(f'took {current_time}s to tag (avg) {total_time/events}')
+            start_time = time.time()
 
 
 if __name__ == '__main__':
