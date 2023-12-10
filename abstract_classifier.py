@@ -106,7 +106,7 @@ def main():
             current_time = (time.time()-start_time)
             events += 1
             total_time += current_time
-            print(f'({index}/{len(affiliation_set)} took {current_time}s to tag {article_id} (avg) {total_time/events}')
+            print(f'({index}/{len(affiliation_set)} took {current_time}s to tag {article_id} (time left) {total_time/events*(len(affiliation_set)-index)}')
             start_time = time.time()
             index += 1
 
