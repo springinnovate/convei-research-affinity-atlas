@@ -37,7 +37,7 @@ def main():
     args = parser.parse_args()
 
     print('load bib_file')
-    affilation_set = set()
+    affiliation_set = set()
     with open(args.bib_file, 'r', encoding='utf-8') as file:
         affiliation_str = None
         abstract_str = None
@@ -61,20 +61,20 @@ def main():
             if abstract_str and affiliation_str:
                 if article_id is None:
                     print(f'ERROR: {abstract_str}')
-                affilation_set.add((article_id, affiliation_str, abstract_str))
+                affiliation_set.add((article_id, affiliation_str, abstract_str))
                 article_id = None
                 affiliation_str = None
                 abstract_str = None
 
     print('load candidate_labels')
-    print(len(affilation_set))
+    print(len(affiliation_set))
     with open(args.abstract_tag_file, 'r') as file:
         candidate_labels = ', '.join([
             v for v in file.read().split('\n')
             if len(v) > 0])
     print(candidate_labels)
 
-    batch_size = 25
+    batch_size = 10
     classifier = pipeline(
         "zero-shot-classification",
         model="MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli",
@@ -89,29 +89,26 @@ def main():
     total_time = 0
     events = 0
     with open(target_path, 'w', encoding='utf-8') as file:
-        print(f'opening {target_path} for writing {len(affilation_set)} affiliations')
-        abstract_str_list = [x[2] for x in affilation_set]
-        article_id_affiliation = []
-        abstract_batch = []
+        print(f'opening {target_path} for writing {len(affiliation_set)} affiliations')
         start_time = time.time()
         def affiliation_generator():
-            for _, affiliation_str, _ in affilation_set:
+            for _, affiliation_str, _ in affiliation_set:
                 yield affiliation_str
+        index = 1
         for (article_id, affiliation_str, abstract_str), result in zip(
-                affilation_set,
+                affiliation_set,
                 classifier(affiliation_generator(), candidate_labels, multi_label=True)):
             file.write(f'{article_id}\n{affiliation_str}\n{abstract_str}\n')
             for label, score in zip(result['labels'], result['scores']):
                 file.write(f'{label}: {score}\n')
             file.write('\n')
             file.flush()
-            abstract_batch = []
-            article_id_affiliation = []
             current_time = (time.time()-start_time)
             events += 1
             total_time += current_time
-            print(f'took {current_time}s to tag (avg) {total_time/events}')
+            print(f'({index}/{len(affiliation_set)} took {current_time}s to tag {article_id} (avg) {total_time/events}')
             start_time = time.time()
+            index += 1
 
 
 if __name__ == '__main__':
