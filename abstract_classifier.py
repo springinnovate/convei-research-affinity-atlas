@@ -2,20 +2,12 @@ import argparse
 import glob
 import logging
 import os
-import pickle
-import random
 import time
-import torch
 import re
 import warnings
 
-#from optimum.pipelines import pipeline
 from transformers import pipeline
-from flair.data import Sentence
-from flair.models import SequenceTagger
-
-from transformers import AutoTokenizer, AutoModelForTokenClassification
-
+import torch
 
 warnings.filterwarnings("ignore", category=UserWarning, module="torch.utils.data")
 

@@ -1,6 +1,12 @@
 """
-what are the most to least common affiliation tags?
-which affiliation tags are working with which other ones? (like when is water working with disasters when the person with water in their affiliation doesn't have disasters in their affiliation and vice versa) what are the strength of those connections?
+* what are the most to least common affiliation tags?
+* which affiliation tags are working with which other ones? (like when is water
+  working with disasters when the person with water in their affiliation doesn't
+  have disasters in their affiliation and vice versa) what are the strength of
+  those connections?
+* what are the most to least common topic tags (from the abstracts)?
+* which affiliations are working on which topics together, and what are the
+  strongest interactions?
 """
 import argparse
 import collections
@@ -11,6 +17,9 @@ def main():
     parser.add_argument(
         'classified_affiliation_file',
         help='Path file with affiliation, name, and tags')
+    parser.add_argument(
+        'abstract_classification_file',
+        help='Path to ')
     parser.add_argument(
         'bib_file', help='path to raw bibilography file')
     parser.add_argument('--filter', nargs='+')

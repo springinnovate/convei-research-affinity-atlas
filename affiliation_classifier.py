@@ -1,16 +1,11 @@
 import argparse
 import glob
 import logging
-import os
-import pickle
-import random
+import re
+import time
 
 from transformers import pipeline
-from flair.data import Sentence
-from flair.models import SequenceTagger
-
-from transformers import AutoTokenizer, AutoModelForTokenClassification
-
+import torch
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -23,62 +18,77 @@ LOGGER = logging.getLogger(__name__)
 
 def main():
     parser = argparse.ArgumentParser(description='Affiliation classifier')
-    parser.add_argument('affiliation_pickle_list', help='path to affiliation pickle list')
+    parser.add_argument('bib_file_pattern', help='path to SCOPUS bib file')
+    parser.add_argument('affiliation_tag_path', help='Path to file with affiliation tags.')
+    parser.add_argument('--cuda', action='store_true', help='Use CUDA')
+    parser.add_argument('--target_path', help='Path to target output file.')
     args = parser.parse_args()
-
+    device = None
+    if args.cuda and not torch.cuda.is_available():
+        raise ValueError('CUDA not supported')
+    else:
+        device = 0
 
     print('load affilation_list')
-    affilation_set = set()
-    for affiliation_pickle_file in glob.glob(args.affiliation_pickle_list):
-        with open(args.affiliation_pickle_list, 'r', encoding='utf-8') as file:
+    affiliation_set = set()
+    for bib_file in glob.glob(args.bib_file_pattern):
+        with open(bib_file, 'r', encoding='utf-8') as file:
+            affiliation_str = None
+            abstract_str = None
+            article_id = None
             for line in file:
-                affilation_set.add(line.rstrip().lstrip())
-    affilation_list = list(affilation_set)
-    random.shuffle(affilation_list)
-    print('load candidate_labels')
-    with open('data/affiliation_tags.txt', 'r') as file:
-        candidate_labels = ', '.join([
-            v for v in file.read().split('\n')
-            if len(v) > 0])
-    print(candidate_labels)
+                try:
+                    #if abstract_str is not None or affiliation_str is not None:
+                    #    print(f'WARNING: "{article_id}" had these were left over', abstract_str, affiliation_str)
+                    article_id = re.search('@[^{]+{(.*),', line).group(1)
+                    if article_id is None:
+                        print(f'ERROR: {line}')
+                    affiliation_str = None
+                    abstract_str = None
+                    continue
+                except:
+                    pass
+                if 'abstract =' in line:
+                    abstract_str = re.search('{(.*)}', line).group(1)
+                elif 'affiliations =' in line:
+                    affiliation_str = re.search('{(.*)}', line).group(1)
+                if abstract_str and affiliation_str:
+                    if article_id is None:
+                        print(f'ERROR: {abstract_str}')
+                    affiliation_set |= set([x.strip() for x in affiliation_str.split(';')])
 
+
+    with open(args.affiliation_tag_path, 'r', encoding='utf-8') as file:
+        candidate_labels = ', '.join([x.strip() for x in file.read().split('\n') if x.strip() != ''])
+
+    batch_size = 10
     classifier = pipeline(
-        "zero-shot-classification", model="facebook/bart-large-mnli")
-    #tagger = SequenceTagger.load("flair/ner-english-ontonotes-large")
+        "zero-shot-classification",
+        model="MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli",
+        device=device, batch_size=batch_size, truncation=True)
 
-    tokenizer = AutoTokenizer.from_pretrained("dslim/bert-base-NER")
-    tagger_model = AutoModelForTokenClassification.from_pretrained("dslim/bert-base-NER")
-
-    token_tagger = pipeline("ner", model=tagger_model, tokenizer=tokenizer)
-    with open('%s_classified%s' % os.path.splitext(args.affiliation_pickle_list), 'w', encoding='utf-8') as file:
-        for affiliation in affilation_list:
-            print(f'processing {affiliation}')
-            org_components = ''
-            for entity in token_tagger(affiliation):
-                if entity['entity_group'] in ['ORG', 'MIS']:
-                    org_components += f'{entity["word"]} '
-
-
-            # tagged_affiliation = Sentence(affiliation)
-            # tagger.predict(tagged_affiliation)
-            # for entity in tagged_affiliation.get_spans('ner'):
-            #     if len(entity.text) > 5 and entity.get_label().value == 'ORG':
-            #         org_components += f'{entity.text} '
-            file.write(f'{affiliation}\n')
-            file.write(f'{org_components}\n')
-            if len(org_components) == 0:
-                org_components = affiliation
-            result = classifier(
-                org_components, candidate_labels, multi_label=True)
-            if len(result) > 20:
-                continue
+    events = 0
+    total_time = 0
+    with open(args.target_path, 'w', encoding='utf-8') as file:
+        start_time = time.time()
+        def affiliation_generator():
+            for _, affiliation_str, _ in affiliation_set:
+                yield affiliation_str
+        index = 1
+        for affiliation_str, result in zip(
+                affiliation_set,
+                classifier(affiliation_generator(), candidate_labels, multi_label=True)):
+            file.write(f'{affiliation_str}\n')
             for label, score in zip(result['labels'], result['scores']):
-                if score < 0.8:
-                    break
                 file.write(f'{label}: {score}\n')
             file.write('\n')
             file.flush()
-
+            current_time = (time.time()-start_time)
+            events += 1
+            total_time += current_time
+            print(f'({index}/{len(affiliation_set)} took {current_time}s to tag {article_id} (time left) {total_time/events*(len(affiliation_set)-index)}')
+            start_time = time.time()
+            index += 1
 
 if __name__ == '__main__':
     main()
