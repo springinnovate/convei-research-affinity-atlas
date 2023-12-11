@@ -24,10 +24,13 @@ def main():
     parser.add_argument('--target_path', help='Path to target output file.')
     args = parser.parse_args()
     device = None
-    if args.cuda and not torch.cuda.is_available():
-        raise ValueError('CUDA not supported')
-    else:
-        device = 0
+    batch_size = None
+    if args.cuda:
+        if not torch.cuda.is_available():
+            raise ValueError('CUDA not supported')
+        else:
+            device = 0
+            batch_size = 10
 
     print('load affilation_list')
     affiliation_set = set()
@@ -55,13 +58,42 @@ def main():
                 if abstract_str and affiliation_str:
                     if article_id is None:
                         print(f'ERROR: {abstract_str}')
-                    affiliation_set |= set([x.strip() for x in affiliation_str.split(';')])
+                    affiliation_set |= set([
+                        x.strip() for x in affiliation_str.split(';')
+                        if x.strip() != ''])
 
+    def affiliation_generator():
+        for affiliation_str in affiliation_set:
+            print(f'affilation: {affiliation_str}')
+            yield affiliation_str
+
+    token_tagger = pipeline(
+        "ner", model='dslim/bert-base-NER', device=device, batch_size=batch_size)
+    scrubbed_affilliation_list = []
+    for affiliation_str, result in zip(affiliation_set, token_tagger(affiliation_generator())):
+        org_components = ''
+        for entity in result:
+            if entity['entity'][2:] in ['ORG', 'MIS']:
+                word = entity['word']
+                print(f'WORD: {word}')
+                if not word.startswith('##'):
+                    space = ' '
+                else:
+                    word = word[2:]
+                org_components += f'{space}{word}'
+        if len(org_components) == 0:
+            org_components = affiliation_str
+        scrubbed_affilliation_list.append((affiliation_str.strip(), org_components.strip()))
+        print(scrubbed_affilliation_list[-1])
+
+    def affiliation_generator():
+        for _, affiliation_str in scrubbed_affilliation_list:
+            print(f'affilation: {affiliation_str}')
+            yield affiliation_str
 
     with open(args.affiliation_tag_path, 'r', encoding='utf-8') as file:
         candidate_labels = ', '.join([x.strip() for x in file.read().split('\n') if x.strip() != ''])
 
-    batch_size = 10
     classifier = pipeline(
         "zero-shot-classification",
         model="MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli",
@@ -69,14 +101,13 @@ def main():
 
     events = 0
     total_time = 0
+    print(f'affillition labels: {candidate_labels}')
     with open(args.target_path, 'w', encoding='utf-8') as file:
         start_time = time.time()
-        def affiliation_generator():
-            for _, affiliation_str, _ in affiliation_set:
-                yield affiliation_str
+
         index = 1
-        for affiliation_str, result in zip(
-                affiliation_set,
+        for (affiliation_str, _), result in zip(
+                scrubbed_affilliation_list,
                 classifier(affiliation_generator(), candidate_labels, multi_label=True)):
             file.write(f'{affiliation_str}\n')
             for label, score in zip(result['labels'], result['scores']):
