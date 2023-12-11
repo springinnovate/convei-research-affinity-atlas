@@ -75,10 +75,10 @@ def main():
         for entity in result:
             if entity['entity'][2:] in ['ORG', 'MIS']:
                 word = entity['word']
-                print(f'WORD: {word}')
                 if not word.startswith('##'):
                     space = ' '
                 else:
+                    space = ''
                     word = word[2:]
                 org_components += f'{space}{word}'
         if len(org_components) == 0:
