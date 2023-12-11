@@ -31,43 +31,47 @@ LOGGER = logging.getLogger(__name__)
 def main():
     print(torch.cuda.is_available())
     parser = argparse.ArgumentParser(description='Affiliation classifier')
-    parser.add_argument('bib_file', help='path to bibliography list')
+    parser.add_argument('bib_file_pattern', help='path to bibliography list')
     parser.add_argument('abstract_tag_file', help='path to abstract tags')
     parser.add_argument('--target_path', help='target classified table')
     args = parser.parse_args()
 
     print('load bib_file')
     affiliation_set = set()
-    with open(args.bib_file, 'r', encoding='utf-8') as file:
-        affiliation_str = None
-        abstract_str = None
-        article_id = None
-        for line in file:
-            try:
-                #if abstract_str is not None or affiliation_str is not None:
-                #    print(f'WARNING: "{article_id}" had these were left over', abstract_str, affiliation_str)
-                article_id = re.search('@[^{]+{(.*),', line).group(1)
-                if article_id is None:
-                    print(f'ERROR: {line}')
-                affiliation_str = None
-                abstract_str = None
-                continue
-            except:
-                pass
-            if 'abstract =' in line:
-                abstract_str = re.search('{(.*)}', line).group(1)
-            elif 'affiliations =' in line:
-                affiliation_str = re.search('{(.*)}', line).group(1)
-            if abstract_str and affiliation_str:
-                if article_id is None:
-                    print(f'ERROR: {abstract_str}')
-                affiliation_set.add((article_id, affiliation_str, abstract_str))
-                article_id = None
-                affiliation_str = None
-                abstract_str = None
+    article_count = 0
+    for bib_file in glob.glob(args.bib_file_pattern):
+        with open(bib_file, 'r', encoding='utf-8') as file:
+            affiliation_str = None
+            abstract_str = None
+            article_id = None
+            for line in file:
+                try:
+                    #if abstract_str is not None or affiliation_str is not None:
+                    #    print(f'WARNING: "{article_id}" had these were left over', abstract_str, affiliation_str)
+                    article_id = re.search('@[^{]+{(.*),', line).group(1)
+                    if article_id is None:
+                        print(f'ERROR: {line}')
+                    affiliation_str = None
+                    abstract_str = None
+                    continue
+                except:
+                    pass
+                if 'abstract =' in line:
+                    abstract_str = re.search('{(.*)}', line).group(1)
+                elif 'affiliations =' in line:
+                    affiliation_str = re.search('{(.*)}', line).group(1)
+                if abstract_str and affiliation_str:
+                    if article_id is None:
+                        print(f'ERROR: {abstract_str}')
+                    affiliation_set.add((article_id, affiliation_str, abstract_str))
+                    article_count += 1
+                    article_id = None
+                    affiliation_str = None
+                    abstract_str = None
 
     print('load candidate_labels')
-    print(len(affiliation_set))
+    print(f'article count: {article_count} vs {len(affiliation_set)}')
+
     with open(args.abstract_tag_file, 'r') as file:
         candidate_labels = ', '.join([
             v for v in file.read().split('\n')
