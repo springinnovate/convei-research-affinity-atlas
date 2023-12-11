@@ -93,7 +93,6 @@ def main():
         print(f'({index}/{len(affiliation_set)} took {current_time}s to token tag (time left) {total_time/index*(len(affiliation_set)-index)}')
         index += 1
         start_time = time.time()
-        break
 
     def affiliation_generator():
         for _, affiliation_str in scrubbed_affilliation_list:
