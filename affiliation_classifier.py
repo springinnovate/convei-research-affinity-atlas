@@ -70,6 +70,9 @@ def main():
     token_tagger = pipeline(
         "ner", model='dslim/bert-base-NER', device=device, batch_size=batch_size)
     scrubbed_affilliation_list = []
+    start_time = time.time()
+    total_time = 0
+    index = 1
     for affiliation_str, result in zip(affiliation_set, token_tagger(affiliation_generator())):
         org_components = ''
         for entity in result:
@@ -85,10 +88,15 @@ def main():
             org_components = affiliation_str
         scrubbed_affilliation_list.append((affiliation_str.strip(), org_components.strip()))
         print(scrubbed_affilliation_list[-1])
+        current_time = time.time() - start_time
+        total_time += current_time
+        print(f'({index}/{len(affiliation_set)} took {current_time}s to token tag (time left) {total_time/index*(len(affiliation_set)-index)}')
+        index += 1
+        start_time = time.time()
+        break
 
     def affiliation_generator():
         for _, affiliation_str in scrubbed_affilliation_list:
-            print(f'affilation: {affiliation_str}')
             yield affiliation_str
 
     with open(args.affiliation_tag_path, 'r', encoding='utf-8') as file:
@@ -99,7 +107,6 @@ def main():
         model="MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli",
         device=device, batch_size=batch_size, truncation=True)
 
-    events = 0
     total_time = 0
     print(f'affillition labels: {candidate_labels}')
     with open(args.target_path, 'w', encoding='utf-8') as file:
@@ -115,9 +122,8 @@ def main():
             file.write('\n')
             file.flush()
             current_time = (time.time()-start_time)
-            events += 1
             total_time += current_time
-            print(f'({index}/{len(affiliation_set)} took {current_time}s to tag {article_id} (time left) {total_time/events*(len(affiliation_set)-index)}')
+            print(f'({index}/{len(scrubbed_affilliation_list)} took {current_time}s to tag {article_id} (time left) {total_time/index*(len(scrubbed_affilliation_list)-index)}')
             start_time = time.time()
             index += 1
 
