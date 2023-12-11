@@ -64,7 +64,6 @@ def main():
 
     def affiliation_generator():
         for affiliation_str in affiliation_set:
-            print(f'affilation: {affiliation_str}')
             yield affiliation_str
 
     token_tagger = pipeline(
@@ -87,7 +86,6 @@ def main():
         if len(org_components) == 0:
             org_components = affiliation_str
         scrubbed_affilliation_list.append((affiliation_str.strip(), org_components.strip()))
-        print(scrubbed_affilliation_list[-1])
         current_time = time.time() - start_time
         total_time += current_time
         print(f'({index}/{len(affiliation_set)} took {current_time}s to token tag (time left) {total_time/index*(len(affiliation_set)-index)}')
@@ -107,7 +105,7 @@ def main():
         device=device, batch_size=batch_size, truncation=True)
 
     total_time = 0
-    print(f'affillition labels: {candidate_labels}')
+    print(f'affiliation labels: {candidate_labels}')
     with open(args.target_path, 'w', encoding='utf-8') as file:
         start_time = time.time()
 
