@@ -12,6 +12,9 @@ import argparse
 import collections
 import re
 
+import numpy
+
+
 def main():
     parser = argparse.ArgumentParser(description='Parse and process affiliation data')
     parser.add_argument(
@@ -20,49 +23,41 @@ def main():
     parser.add_argument(
         'abstract_classification_file',
         help='Path to ')
-    parser.add_argument(
-        'bib_file', help='path to raw bibilography file')
     parser.add_argument('--filter', nargs='+')
     parser.add_argument('--show_names', action='store_true')
     parser.add_argument('--confidence_threshold', type=float)
     parser.add_argument('--show_related', action='store_true')
     args = parser.parse_args()
 
-    # give an affiliation and see all the others associated with it
-    affiliation_sets = collections.defaultdict(list)
-    with open(args.bib_file, 'r', encoding='utf-8') as file:
-        for line in file:
-            line = line.lstrip()
-            if not line.startswith('affiliations'):
-                continue
-            affiliation_list = set([
-                x.lstrip().rstrip() for x in
-                re.search(r'\{(.*)\}', line).group(1).split(';')])
-            for affiliation in affiliation_list:
-                affiliation_sets[affiliation].append(affiliation_list)
-
     affiliation_map = {}
+    affilliation_topic_to_index = collections.defaultdict(
+        lambda: len(affilliation_topic_to_index))
     tag_to_affiliation_map = collections.defaultdict(list)
     with open(args.classified_affiliation_file, 'r', encoding='utf-8') as file:
+        # build up topic map
+        file.readline()  # skip the first line
         while True:
-            affiliation_dict = {}
-            affiliation = file.readline().lstrip().rstrip()
-            affiliation_dict['affiliation'] = affiliation
+            topic = file.readline().strip().split(':')[0]
+            if topic == '':
+                file.seek(0)
+                break
+            affilliation_topic_to_index[topic]  # trigger the index
+
+        while True:
+            affiliation = file.readline().strip()
             if affiliation == '':
                 break
-            short_affiliation = file.readline()
-            affiliation_dict['tags'] = {}
+
+            topic_weights = numpy.zeros(len(affilliation_topic_to_index))
             while True:
                 try:
-                    tag, prob = file.readline().split(':')
-                    if args.confidence_threshold and float(prob) < args.confidence_threshold:
-                        continue
-                    affiliation_dict['tags'][tag] = prob
-                    tag_to_affiliation_map[tag].append(affiliation)
+                    topic, prob = file.readline().strip().split(':')
+                    topic_weights[affilliation_topic_to_index[topic]] = prob
                 except ValueError:
                     # can't split, so blank line, next section
                     break
-                affiliation_map[affiliation] = affiliation_dict
+            affiliation_map[affiliation] = topic_weights
+    return
 
     valid_affiliation_set = set()
     if not args.filter:
