@@ -11,79 +11,138 @@ x what are the most to least common affiliation tags?
 import argparse
 import collections
 import glob
+import os
 import re
 
 import pandas as pd
 import numpy
 import umap
 import matplotlib.pyplot as plt
+from sklearn import mixture
 
 from bokeh.plotting import figure, show, output_notebook
 from bokeh.models import HoverTool, ColumnDataSource
 
 output_notebook()
 
-# subset affiliations based on abstracts
-def cluster_map():
 
-    print('fit the reducer')
+def dump_abstract_tags(target_csv_file, abstract_topic_weights, abstract_topic_list):
+    topic_weight_sum = numpy.zeros(len(abstract_topic_list))
+    count = 0
+    topic_weight_array = []
+    for topic_weights in abstract_topic_weights:
+        topic_weight_array.append(topic_weights)
+        topic_weight_sum += topic_weights
+        count += 1
+    topic_to_total_weight = collections.defaultdict(float)
+    with open(target_csv_file, 'w') as file:
+        file.write('topic,total_weight\n')
+        for weight, topic in sorted(
+                zip(topic_weight_sum, abstract_topic_list),
+                reverse=True):
+            topic_to_total_weight[topic] = weight
+            file.write(f'{topic},{weight}\n')
+
     reducer = umap.UMAP()
     topic_weight_array = numpy.array(topic_weight_array)
     reducer.fit(topic_weight_array)
-    print('transform the data')
-    embedding = reducer.transform(topic_weight_array)
+    embedding = reducer.fit_transform(topic_weight_array)
+    print('gaussian clustering')
+    gmm = mixture.GaussianMixture(
+        n_components=len(abstract_topic_list),
+        covariance_type="full").fit(embedding)
+    cluster_labels = gmm.predict(embedding)
+    print(cluster_labels)
+    cluster_topic_weights = collections.defaultdict(
+        lambda: numpy.zeros(len(abstract_topic_list)))
+    cluster_topic_weight_count = collections.defaultdict(int)
+    for topic_weights, cluster_label in zip(topic_weight_array, cluster_labels):
+        cluster_topic_weights[cluster_label] += topic_weights
+        cluster_topic_weight_count[cluster_label] += 1
 
-    plt.scatter(embedding[:, 0], embedding[:, 1], s=5)
-    plt.gca().set_aspect('equal', 'datalim')
-    plt.title('UMAP projection of affiliation topics', fontsize=24)
-    plt.show()
-
-    topics_df = pd.DataFrame(embedding, columns=('x', 'y'))
-    topics_df['weights'] = weights_as_str
-
-    datasource = ColumnDataSource(topics_df)
-
-    plot_figure = figure(
-        title='UMAP projection of the Digits dataset',
-        plot_width=600,
-        plot_height=600,
-        tools=('pan, wheel_zoom, reset')
-    )
-
-    plot_figure.add_tools(HoverTool(tooltips="""
-    <div>
-        @weights
-    </div>
-    """))
-
-    plot_figure.circle(
-        'x',
-        'y',
-        source=datasource,
-        line_alpha=0.6,
-        fill_alpha=0.6,
-        size=4
-    )
-    show(plot_figure)
+    max_topics = 3
+    with open('%s_topic_clusters%s' % os.path.splitext(target_csv_file), 'w') as file:
+        topic_set_count = collections.defaultdict(int)
+        for cluster_label, cluster_count in \
+                cluster_topic_weight_count.items():
+            topic_set = set()
+            for index, (weight, topic) in enumerate(sorted(
+                    zip(cluster_topic_weights[cluster_label],
+                        abstract_topic_list),
+                    reverse=True)):
+                if index == max_topics:
+                    break
+                topic_set.add(topic)
+            topic_set_count[tuple(topic_set)] += cluster_count
+        file.write(','.join([f'topic_{index}' for index in range(max_topics)]))
+        file.write(',total_weight\n')
+        for topic_set, count in sorted(
+                topic_set_count.items(), key=lambda x: x[1],
+                reverse=True):
+            topic = ','.join(
+                sorted(topic_set, key=lambda x:-topic_to_total_weight[x]))
+            file.write(f'{topic},{count}\n')
 
 
 def dump_topic_tags(target_csv_file, affiliation_subset, affiliation_map, affiliation_topic_list):
-    print(affiliation_subset)
-    print(affiliation_map)
     topic_weight_sum = numpy.zeros(len(affiliation_topic_list))
     count = 0
+    topic_weight_array = []
     for affiliation in affiliation_subset:
         if affiliation not in affiliation_map:
             continue
         topic_weights = affiliation_map[affiliation]
+        topic_weight_array.append(topic_weights)
         topic_weight_sum += topic_weights
         count += 1
+    topic_to_total_weight = collections.defaultdict(float)
     with open(target_csv_file, 'w') as file:
-        file.write(f'{count}\n')
+        file.write('topic,total_weight\n')
         for weight, topic in sorted(
                 zip(topic_weight_sum, affiliation_topic_list),
                 reverse=True):
+            topic_to_total_weight[topic] = weight
             file.write(f'{topic},{weight}\n')
+
+    reducer = umap.UMAP()
+    topic_weight_array = numpy.array(topic_weight_array)
+    reducer.fit(topic_weight_array)
+    embedding = reducer.fit_transform(topic_weight_array)
+    print('gaussian clustering')
+    gmm = mixture.GaussianMixture(
+        n_components=len(affiliation_topic_list),
+        covariance_type="full").fit(embedding)
+    cluster_labels = gmm.predict(embedding)
+    print(cluster_labels)
+    cluster_topic_weights = collections.defaultdict(
+        lambda: numpy.zeros(len(affiliation_topic_list)))
+    cluster_topic_weight_count = collections.defaultdict(int)
+    for topic_weights, cluster_label in zip(topic_weight_array, cluster_labels):
+        cluster_topic_weights[cluster_label] += topic_weights
+        cluster_topic_weight_count[cluster_label] += 1
+
+    max_topics = 2
+    with open('%s_topic_clusters%s' % os.path.splitext(target_csv_file), 'w') as file:
+        topic_set_count = collections.defaultdict(int)
+        for cluster_label, cluster_count in \
+                cluster_topic_weight_count.items():
+            topic_set = set()
+            for index, (weight, topic) in enumerate(sorted(
+                    zip(cluster_topic_weights[cluster_label],
+                        affiliation_topic_list),
+                    reverse=True)):
+                if index == max_topics:
+                    break
+                topic_set.add(topic)
+            topic_set_count[tuple(topic_set)] += cluster_count
+        file.write(','.join([f'topic_{index}' for index in range(max_topics)]))
+        file.write(',total_weight\n')
+        for topic_set, count in sorted(
+                topic_set_count.items(), key=lambda x: x[1],
+                reverse=True):
+            topic = ','.join(
+                sorted(topic_set, key=lambda x: -topic_to_total_weight[x]))
+            file.write(f'{topic},{count}\n')
 
 
 def main():
@@ -162,6 +221,7 @@ def main():
         weights_as_str.append(x)
 
     with open('affiliation_topic_ranks.csv', 'w') as file:
+        file.write('topic,total_weight\n')
         for topic, weight in sorted(zip(affiliation_topic_list, topic_weight_sum), key=lambda x: x[1]):
             file.write(f'{topic},{weight}\n')
 
@@ -253,6 +313,13 @@ def main():
                 })
         print(f'unknown abstract count {count}')
 
+    dump_abstract_tags(
+        'abstract_topics.csv',
+        [x['topic_weights'] for x in abstract_list],
+        abstract_topic_list
+        )
+    return
+
     print('what are the most to least common abstract tags')
     topic_weight_sum = numpy.zeros(len(abstract_topic_to_index))
 
@@ -268,6 +335,7 @@ def main():
         weights_as_str.append(x)
 
     with open('abstract_topics_rank.csv', 'w') as file:
+        file.write('topic,total_weight\n')
         for topic, weight in sorted(zip(abstract_topic_list, topic_weight_sum), key=lambda x: x[1]):
             file.write(f'{topic},{weight}\n')
 
@@ -317,7 +385,6 @@ def main():
             affiliation_subset,
             affiliation_map,
             affiliation_topic_list)
-    #     subset_abstracts
 
     return
 
