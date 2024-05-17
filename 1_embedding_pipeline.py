@@ -192,9 +192,8 @@ def load_embeddings(filename):
 
 
 def main():
-    embedding_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-    qa_model = AutoModelForQuestionAnswering.from_pretrained('deepset/roberta-base-squad2')
-    tokenizer = AutoTokenizer.from_pretrained('deepset/roberta-base-squad2')
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    embedding_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2').to(device)
 
     file_paths = [
         file_path
@@ -227,49 +226,6 @@ def main():
         index = faiss.IndexFlatL2(document_embeddings.shape[1])
         index.add(document_embeddings.cpu().numpy())
         faiss.write_index(index, fiass_path)
-
-    # Function to retrieve relevant documents and answer the question
-    def answer_question(question, documents, index):
-        # Encode the question
-        question_embedding = embedding_model.encode(
-            question, convert_to_tensor=True).cpu().numpy()
-
-        # Ensure the question_embedding is 2D
-        if len(question_embedding.shape) == 1:
-            question_embedding = question_embedding.reshape(1, -1)
-
-        # Retrieve the most similar documents
-        top_k = 5
-        distances, indices = index.search(question_embedding, top_k)
-
-        retrieved_docs = [documents[idx] for idx in indices[0]]
-        return retrieved_docs
-        # Use the retrieved documents as context to answer the question
-        context = " ".join(retrieved_docs)
-        inputs = tokenizer.encode_plus(
-            question,
-            context,
-            add_special_tokens=True,
-            max_length=512,
-            truncation=True,
-            return_tensors='pt'
-        )
-        # Run the model
-        input_ids = inputs['input_ids']
-        attention_mask = inputs['attention_mask']
-        outputs = qa_model(input_ids, attention_mask=attention_mask)
-
-        # Extract the answer with extended span
-        answer_start = torch.argmax(outputs.start_logits)
-        answer_end = torch.argmax(outputs.end_logits) + 1
-        # Extend the span by a fixed number of tokens before and after the predicted span
-        answer_start = max(answer_start - 10, 0)  # extend 10 tokens before
-        answer_end = min(answer_end + 10, input_ids.size(1))  # extend 10 tokens after
-
-        answer = tokenizer.convert_tokens_to_string(
-            tokenizer.convert_ids_to_tokens(
-                input_ids[0][answer_start:answer_end]))
-        return answer
 
     def answer_question_with_gpt(question, documents, citations, index, top_k=5):
         # Encode the question
@@ -309,9 +265,6 @@ def main():
                 print(chunk.choices[0].delta.content, end="")
         return response, relevant_citations
 
-    # Example question
-
-    #How are earth observation products being applied to societally-relevant topics?
     while True:
         question = input("Enter your question (or type 'exit' to quit): ")
         if question.lower() == 'exit':
