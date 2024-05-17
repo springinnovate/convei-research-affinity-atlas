@@ -60,7 +60,7 @@ def dump_abstract_tags(target_csv_file, abstract_topic_weights, abstract_topic_l
         cluster_topic_weights[cluster_label] += topic_weights
         cluster_topic_weight_count[cluster_label] += 1
 
-    max_topics = 3
+    max_topics = 4
     with open('%s_topic_clusters%s' % os.path.splitext(target_csv_file), 'w') as file:
         topic_set_count = collections.defaultdict(int)
         for cluster_label, cluster_count in \
@@ -121,7 +121,7 @@ def dump_topic_tags(target_csv_file, affiliation_subset, affiliation_map, affili
         cluster_topic_weights[cluster_label] += topic_weights
         cluster_topic_weight_count[cluster_label] += 1
 
-    max_topics = 2
+    max_topics = 4
     with open('%s_topic_clusters%s' % os.path.splitext(target_csv_file), 'w') as file:
         topic_set_count = collections.defaultdict(int)
         for cluster_label, cluster_count in \
@@ -318,7 +318,6 @@ def main():
         [x['topic_weights'] for x in abstract_list],
         abstract_topic_list
         )
-    return
 
     print('what are the most to least common abstract tags')
     topic_weight_sum = numpy.zeros(len(abstract_topic_to_index))
