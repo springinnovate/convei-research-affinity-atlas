@@ -10,10 +10,8 @@ import torch
 import faiss
 
 
-from transformers import AutoModelForQuestionAnswering
 from sentence_transformers import SentenceTransformer
 import tiktoken
-from transformers import AutoTokenizer
 from dotenv import load_dotenv
 
 logging.basicConfig(
