@@ -15,15 +15,18 @@ import tiktoken
 from dotenv import load_dotenv
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format=(
         '%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s'
         ' [%(funcName)s:%(lineno)d] %(message)s'))
 logging.getLogger('taskgraph').setLevel(logging.INFO)
+logging.getLogger('sentence_transformers').setLevel(logging.WARN)
+logging.getLogger('httpx').setLevel(logging.WARN)
 LOGGER = logging.getLogger(__name__)
 
-GPT_MODEL = 'gpt-3.5-turbo'
+GPT_MODEL = 'gpt-4o' # 'gpt-3.5-turbo'
 ENCODING = tiktoken.encoding_for_model(GPT_MODEL)
+TOP_K = 10
 
 BODY_TAG = 'body'
 CITATION_TAG = 'citation'
@@ -205,16 +208,18 @@ def main():
     if os.path.exists(article_list_pkl_path):
         with open(article_list_pkl_path, 'rb') as file:
             article_list = pickle.load(file)
+        documents = [article[BODY_TAG] for article in article_list]
+        citations = [article[CITATION_TAG] for article in article_list]
         index = faiss.read_index(fiass_path)
     else:
         article_list = []
         for file_path in file_paths:
             article_list += parse_file(file_path)
+        with open(article_list_pkl_path, 'wb') as file:
+            pickle.dump(article_list, file)
 
         documents = [article[BODY_TAG] for article in article_list]
         citations = [article[CITATION_TAG] for article in article_list]
-        with open(article_list_pkl_path, 'wb') as file:
-            pickle.dump(documents, file)
 
         LOGGER.debug('embedding')
         document_embeddings = embedding_model.encode(
@@ -225,7 +230,7 @@ def main():
         index.add(document_embeddings.cpu().numpy())
         faiss.write_index(index, fiass_path)
 
-    def answer_question_with_gpt(question, documents, citations, index, top_k=5):
+    def answer_question_with_gpt(question, documents, citations, index):
         # Encode the question
         from openai import OpenAI
         client = OpenAI()
@@ -237,9 +242,9 @@ def main():
             question_embedding = question_embedding.reshape(1, -1)
 
         # Retrieve the most similar documents
-        distances, indices = index.search(question_embedding, top_k)
+        distances, indices = index.search(question_embedding, TOP_K)
         retrieved_docs = [documents[idx] for idx in indices[0]]
-        relevant_citations = [documents[idx] for idx in indices[0]]
+        relevant_citations = [citations[idx] for idx in indices[0]]
 
         # Concatenate the retrieved documents to form the context
         context = " ".join(retrieved_docs)
@@ -255,7 +260,7 @@ def main():
             stream=True,
             max_tokens=300  # Adjust the number of tokens to get a longer answer
         )
-        LOGGER.debug('starting stream')
+        print('Answer: ',)
         response = ''
         for chunk in stream:
             if chunk.choices[0].delta.content is not None:
@@ -267,11 +272,13 @@ def main():
         question = input("Enter your question (or type 'exit' to quit): ")
         if question.lower() == 'exit':
             break
-        LOGGER.info(f'Asking question: {question}')
+        if question.strip() == '':
+            continue
+        LOGGER.debug(f'Asking question: {question}')
         answer, relevant_citations = answer_question_with_gpt(
-            question, documents, citations, document_embeddings, index)
-        print("Answer:", answer)
-        print("Relevant citations: " + '\n\t'.join(relevant_citations))
+            question, documents, citations, index)
+        print("\n\nRELEVANT CITATIONS:\n    * " + '\n    * '.join(relevant_citations))
+        print('\n')
 
 
 if __name__ == '__main__':
