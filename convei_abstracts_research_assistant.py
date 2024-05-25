@@ -29,6 +29,7 @@ LOGGER = logging.getLogger(__name__)
 
 #GPT_MODEL = 'gpt-4o'
 GPT_MODEL, MAX_TOKENS, MAX_RESPONSE_TOKENS = 'gpt-3.5-turbo', 16000, 4000
+GPT_MODEL, MAX_TOKENS, MAX_RESPONSE_TOKENS = 'gpt-4o', 20000, 4000
 ENCODING = tiktoken.encoding_for_model(GPT_MODEL)
 TOP_K = 100
 
@@ -47,22 +48,15 @@ CACHE_DIR = 'llm_cache'
 for dirpath in [CACHE_DIR, LOG_DIR]:
     os.makedirs(dirpath, exist_ok=True)
 
+
 def token_count(context):
     return len(ENCODING.encode(context))
 
 
 def trim_context(context, max_tokens):
     tokens = ENCODING.encode(context)
-    print(f'Starting token count: {len(tokens)} (max allowed {max_tokens})')
     tokens = tokens[:max_tokens]
-
-    # Decode tokens back to string if necessary, or reconstruct the string
-    # This step depends on whether you have a specific decoding method
-    trimmed_context = ENCODING.decode(tokens) if hasattr(ENCODING, 'decode') else ' '.join(tokens)
-
-    print(
-        f'Trimmed token count: {len(ENCODING.encode(trimmed_context))}\n\n'
-        f'{trimmed_context}')
+    trimmed_context = ENCODING.decode(tokens)
     return trimmed_context
 
 
@@ -253,6 +247,9 @@ def main():
                 citation_list.append(citation)
                 seen_documents.add(hash_hex)
 
+        LOGGER.debug(
+            f'pickling cleaned document/citation list '
+            f'{body_citation_list_pkl_path}')
         with open(body_citation_list_pkl_path, 'wb') as file:
             pickle.dump((document_list, citation_list), file)
 
@@ -285,7 +282,6 @@ def main():
             remaining_tokens = (
                 MAX_TOKENS -
                 MAX_RESPONSE_TOKENS -
-                token_count(context) -
                 token_count(SYSTEM_CONTEXT))
             context = trim_context(context, max_tokens=remaining_tokens)
             context_counts = context.count("Reference index: ")
@@ -307,9 +303,9 @@ def main():
                     response += chunk.choices[0].delta.content
             # Find all matches
             pattern = (
-                r'references? index(es)?: ?'
+                r'(references? )?(index(es)?)?: ?'
                 r'(\{\d+(,? ?\d+)*\}|\d+|,| )+')
-            matches = re.finditer(pattern, response)
+            matches = re.finditer(pattern, response, re.IGNORECASE)
 
             # Iterate over matches and collect numbers
             reference_indexes = set()
@@ -334,21 +330,16 @@ def main():
             print(f'There was an error, try your question again.\nError: {e}')
 
     while True:
-        question = input("Enter your question (or type 'exit' to exit): ")
+        question = input("\n\n\nPLEASE ASK A QUESTION (or type 'exit' to exit): ")
         if question.lower() in ['exit', 'quit', 'q']:
             break
         if question.strip() == '':
             continue
-        LOGGER.debug(f'Asking question: {question}')
         answer, relevant_references = answer_question_with_gpt(
-            question, documents, citations, index)
+            question, document_list, citation_list, index)
 
-        wrapper = textwrap.TextWrapper(
-            width=80,
-            initial_indent='    ',
-            subsequent_indent='    ')
-        print(wrapper.fill(answer))
-        print(f'See {streaming_log_path} for citation references')
+        print(f'\n{answer}\n')
+        print(f'See {streaming_log_path} for reference index citations')
 
         with open(streaming_log_path, 'a', encoding='utf-8') as log_file:
             log_file.write(
