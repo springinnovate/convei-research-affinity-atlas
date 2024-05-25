@@ -24,7 +24,7 @@ def main():
     df = df.drop_duplicates(subset='DOI', keep='first')
     duplciates_dropped_count = len(df)
     print(f'DOI duplicates dropped: {duplciates_dropped_count}')
-    email_pattern = r'[^\s]+@[^\s]+\.[^\s]+'
+    email_pattern = r'[\w\.-]+@[\w\.-]+\.(?:edu|org|gov)'
     df = df[df['Correspondence Address'].str.contains(
         email_pattern, regex=True)]
     missing_email_dropped = len(df)
@@ -35,6 +35,8 @@ def main():
     print(
         f'Unique emails: {valid_email_count} '
         f'{100*valid_email_count/missing_email_dropped:.2f}%')
+    print(df['Emails'])
+    # filter ema
 
 
 if __name__ == '__main__':
