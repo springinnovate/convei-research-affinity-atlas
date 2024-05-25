@@ -28,7 +28,7 @@ logging.getLogger('httpx').setLevel(logging.WARN)
 LOGGER = logging.getLogger(__name__)
 
 #GPT_MODEL = 'gpt-4o'
-GPT_MODEL, MAX_TOKENS, MAX_RESPONSE_TOKENS = 'gpt-3.5-turbo', 16000, 4000
+#GPT_MODEL, MAX_TOKENS, MAX_RESPONSE_TOKENS = 'gpt-3.5-turbo', 16000, 4000
 GPT_MODEL, MAX_TOKENS, MAX_RESPONSE_TOKENS = 'gpt-4o', 20000, 4000
 ENCODING = tiktoken.encoding_for_model(GPT_MODEL)
 TOP_K = 100
@@ -268,11 +268,26 @@ def main():
     def answer_question_with_gpt(
             question, abstract_list, citation_list, index):
         try:
-            question_embedding = embedding_model.encode(
+            stream = OPENAI_CLIENT.chat.completions.create(
+                model=GPT_MODEL,
+                messages=[
+                    {"role": "system", "content": "Given the following question, restructure it so it's a statement or just a set of words that will better match a research paper abstract in a dense vector index that could answer that question."},
+                    {"role": "user", "content": f"nQuestion: {question}"}
+                ],
+                stream=True,
+                max_tokens=token_count(question)*2
+            )
+            search_phrase = ''
+            for chunk in stream:
+                if chunk.choices[0].delta.content is not None:
+                    search_phrase += chunk.choices[0].delta.content
+
+            search_phrase_embedding = embedding_model.encode(
                 question, convert_to_tensor=True).cpu().numpy()
-            if len(question_embedding.shape) == 1:
-                question_embedding = question_embedding.reshape(1, -1)
-            distances, indices = index.search(question_embedding, TOP_K)
+            if len(search_phrase_embedding.shape) == 1:
+                search_phrase_embedding = search_phrase_embedding.reshape(
+                    1, -1)
+            distances, indices = index.search(search_phrase_embedding, TOP_K)
             relevant_abstracts = [abstract_list[idx] for idx in indices[0]]
             relevant_citations = [citation_list[idx] for idx in indices[0]]
 
@@ -282,12 +297,11 @@ def main():
             remaining_tokens = (
                 MAX_TOKENS -
                 MAX_RESPONSE_TOKENS -
-                token_count(SYSTEM_CONTEXT))
+                token_count(SYSTEM_CONTEXT) -
+                token_count(question))
             context = trim_context(context, max_tokens=remaining_tokens)
             context_counts = context.count("Reference index: ")
 
-            # Call OpenAI API with the context and question
-            LOGGER.debug('setting up stream')
             stream = OPENAI_CLIENT.chat.completions.create(
                 model=GPT_MODEL,
                 messages=[
@@ -297,7 +311,8 @@ def main():
                 stream=True,
                 max_tokens=MAX_RESPONSE_TOKENS
             )
-            response = f'From the top {context_counts} relevant abstracts -- '
+            response = (
+                f'\n(Analyzing the top {context_counts} relevant abstracts found using the modified search phrase: "{search_phrase}"")\n\n')
             for chunk in stream:
                 if chunk.choices[0].delta.content is not None:
                     response += chunk.choices[0].delta.content
@@ -327,7 +342,8 @@ def main():
                     f'\t\t{relevant_abstracts[index]}\n\n')
             return response, referenced_citations
         except openai.APIError as e:
-            print(f'There was an error, try your question again.\nError: {e}')
+            print(
+                f'There was an error, try your question again.\nError: {e}')
 
     while True:
         question = input("\n\n\nPLEASE ASK A QUESTION (or type 'exit' to exit): ")
@@ -351,4 +367,29 @@ def main():
 if __name__ == '__main__':
     load_dotenv()
     OPENAI_CLIENT = openai.OpenAI()
+
+    # for log_file_path in glob.glob(os.path.join(LOG_DIR, '*.txt')):
+    #     print(log_file_path)
+    #     with open(log_file_path, 'r') as file:
+    #         for line in file:
+    #             if not line.startswith('Question: '):
+    #                 continue
+    #             question = line.split('Question: ')[1]
+    #             print(f'Original question: {question}')
+    #             stream = OPENAI_CLIENT.chat.completions.create(
+    #                 model=GPT_MODEL,
+    #                 messages=[
+    #                     {"role": "system", "content": "Given the following question, restructure it so it's a statement or just a set of words that will better match a research paper abstract in a dense vector index that could answer that question."},
+    #                     {"role": "user", "content": f"nQuestion: {question}"}
+    #                 ],
+    #                 stream=True,
+    #                 max_tokens=token_count(question)*2
+    #             )
+    #             response = ''
+    #             for chunk in stream:
+    #                 if chunk.choices[0].delta.content is not None:
+    #                     response += chunk.choices[0].delta.content
+    #             print(f'Rephrased question: {response}\n\n')
+    #             break
+    #     break
     main()
