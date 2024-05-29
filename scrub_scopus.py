@@ -13,7 +13,7 @@ def main():
     # print(matches)
 
     df = pandas.DataFrame()
-    for csv_path in glob.glob('data/scopus_2024_05_24/*.csv'):
+    for csv_path in glob.glob('data/scopus_2024_05_28/*.csv'):
         print(csv_path)
         df = pandas.concat(
             (df, pandas.read_csv(csv_path, na_values=['', ' '], low_memory=False)),
