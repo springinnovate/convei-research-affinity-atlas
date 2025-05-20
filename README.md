@@ -12,6 +12,7 @@
 
 ## Project Structure:
 
+`
 research_network_mapper/
 ├── src/
 │   ├── webmapper/
@@ -62,3 +63,4 @@ research_network_mapper/
 ├── pyproject.toml
 ├── README.md
 └── .env
+`
