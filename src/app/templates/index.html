@@ -58,7 +58,7 @@
                             accordionItem.innerHTML = `
                                 <h2 class="accordion-header" id="heading${item.id}">
                                     <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse${item.id}" aria-expanded="false">
-                                        ${item.title ? item.title : 'No title'}: (${item.url})
+                                        ${item.title ? item.title : 'No title'}: (<a href="${item.url}">${item.url}</a>)
                                     </button>
                                 </h2>
                                 <div id="collapse${item.id}" class="accordion-collapse collapse" data-bs-parent="#urlAccordion">
