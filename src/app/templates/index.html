@@ -32,7 +32,7 @@
             </div>
         </div>
 
-        <h4 class="mb-3">Analyzed Pages</h4>
+        <h4 class="mb-3">Crawled Pages</h4>
         <div class="accordion" id="urlAccordion">
             <!-- Accordion items will load here -->
         </div>
@@ -63,7 +63,6 @@
                                 </h2>
                                 <div id="collapse${item.id}" class="accordion-collapse collapse" data-bs-parent="#urlAccordion">
                                     <div class="accordion-body">
-                                        <button class="btn btn-sm btn-secondary mb-2" onclick="extractLinks(${item.id})">Search for links</button>
                                         <div id="content-${item.id}">Loading content...</div>
                                     </div>
                                 </div>
@@ -75,7 +74,7 @@
                                 fetch(`/urlcontent/${item.id}`)
                                     .then(resp => resp.json())
                                     .then(contentData => {
-                                        document.getElementById(`content-${item.id}`).textContent = contentData.content;
+                                        document.getElementById(`content-${item.id}`).textContent = contentData.text_content;
                                     });
                             }, { once: true });
                         } else {
@@ -83,7 +82,6 @@
                                 <div class="accordion-header">
                                     <div class="p-3 d-flex justify-content-between align-items-center">
                                         <span>${item.title ? item.title : 'No title'}: (${item.url})</span>
-                                        <button class="btn btn-sm btn-primary" onclick="analyzeUrl('${item.url}')">Analyze page</button>
                                     </div>
                                 </div>
                             `;
@@ -92,28 +90,6 @@
                     });
                 });
         }
-
-        function extractLinks(urlId) {
-            fetch(`/urlcontent/${urlId}/extract-links/`, { method: 'POST' })
-                .then(resp => resp.json())
-                .then(result => {
-                    alert(`Discovered ${result.added_urls.length} new URLs.`);
-                    loadUrls();
-                });
-        }
-
-        function analyzeUrl(url) {
-            const formData = new URLSearchParams({ url });
-            fetch('/analyse/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: formData
-            })
-            .then(resp => resp.text())
-            .then(() => loadUrls());
-        }
-
-        // Load URLs on page load
         document.addEventListener('DOMContentLoaded', loadUrls);
     </script>
     <script>

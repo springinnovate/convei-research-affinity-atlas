@@ -57,7 +57,7 @@ async def list_urls():
                 "id": u.id,
                 "title": u.title,
                 "url": u.url,
-                "has_content": bool(u.content),
+                "has_content": bool(u.text_content),
             }
             for u in urls
         ]
@@ -78,47 +78,8 @@ async def url_content(url_id: int):
         "id": url_content.id,
         "url": url_content.url,
         "title": url_content.title,
-        "content": url_content.content,
+        "text_content": url_content.text_content,
     }
-
-
-@app.post("/urlcontent/{url_id}/extract-links/")
-async def extract_links(url_id: int):
-    db = SessionLocal()
-    url_content = db.query(URLContent).filter(URLContent.id == url_id).first()
-
-    if not url_content or not url_content.content:
-        db.close()
-        raise HTTPException(404, "Content not found or empty")
-
-    original_url = url_content.url
-    original_domain = urlparse(original_url).netloc
-
-    href_links = re.findall(
-        r'href=["\'](.*?)["\']', url_content.content, re.IGNORECASE
-    )
-
-    urls_found = set()
-    for link in href_links:
-        absolute_url = urljoin(original_url, link)
-        parsed_url = urlparse(absolute_url)
-        if (
-            parsed_url.scheme in {"http", "https"}
-            and parsed_url.netloc == original_domain
-        ):
-            urls_found.add(absolute_url)
-    new_entries = []
-    for url in urls_found:
-        existing = db.query(URLContent).filter(URLContent.url == url).first()
-        if not existing:
-            new_entry = URLContent(url=url, content=None)
-            db.add(new_entry)
-            new_entries.append(url)
-
-    db.commit()
-    db.close()
-
-    return {"added_urls": new_entries}
 
 
 class CrawlRequest(BaseModel):

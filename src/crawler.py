@@ -13,9 +13,10 @@ from .models import URLContent
 
 async def fetch_page(url, page):
     await page.goto(url)
-    content = await page.content()
+    html_content = await page.content()
+    text_content = await page.evaluate("document.body.innerText")
     title = await page.title()
-    return content, title
+    return html_content, text_content, title
 
 
 async def extract_links(content, base_url, domain):
@@ -54,20 +55,22 @@ async def crawl_domain(start_url, max_pages, progress_dict, crawl_id):
 
             if not page_record:
                 start = time.time()
-                content, title = await fetch_page(url, page)
+                html_content, text_content, title = await fetch_page(url, page)
                 print(f"took {time.time()-start:.2f}s to fetch {url}")
                 page_record = URLContent(
-                    url=url, content=content, title=title, analyzed=True
+                    url=url,
+                    html_content=html_content,
+                    text_content=text_content,
+                    title=title,
+                    analyzed=True,
                 )
                 db.add(page_record)
             else:
-                content = page_record.content
-                url = page_record.url
                 max_pages += 1  # we didn't search it, so do one more
 
             db.commit()
 
-            links = await extract_links(content, url, domain)
+            links = await extract_links(html_content, url, domain)
             for link in links:
                 if link not in visited and len(visited) < max_pages:
                     visited.add(link)

@@ -19,7 +19,8 @@ class URLContent(Base):
     id = Column(Integer, primary_key=True)
     url = Column(String, unique=True, index=True)
     title = Column(String, nullable=True)
-    content = Column(Text, nullable=True)
+    html_content = Column(Text, nullable=True)
+    text_content = Column(Text, nullable=True)
     analyzed = Column(Boolean, default=False)
     entities = relationship("Entity", back_populates="url_content")
 
