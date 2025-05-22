@@ -38,60 +38,80 @@
     </div>
 
     <script>
-        fetch('/urls/')
-            .then(response => response.json())
-            .then(data => {
-                const accordion = document.getElementById('urlAccordion');
-                data.urls.forEach((item, index) => {
-                    const accordionItem = document.createElement('div');
-                    accordionItem.className = 'accordion-item';
+        function loadUrls() {
+            fetch('/urls/')
+                .then(response => response.json())
+                .then(data => {
+                    const accordion = document.getElementById('urlAccordion');
+                    accordion.innerHTML = ''; // Clear previous content
+                    data.urls.forEach((item) => {
+                        const accordionItem = document.createElement('div');
+                        accordionItem.className = 'accordion-item';
 
-                    accordionItem.innerHTML = `
-                        <h2 class="accordion-header" id="heading${item.id}">
-                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse${item.id}" aria-expanded="false" aria-controls="collapse${item.id}">
-                                ${item.url}
-                            </button>
-                        </h2>
-                        <div id="collapse${item.id}" class="accordion-collapse collapse" aria-labelledby="heading${item.id}" data-bs-parent="#urlAccordion">
-                            <div class="accordion-body">Loading content...</div>
-                        </div>
-                    `;
+                        if (item.has_content) {
+                            accordionItem.innerHTML = `
+                                <h2 class="accordion-header" id="heading${item.id}">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse${item.id}" aria-expanded="false">
+                                        ${item.url}
+                                    </button>
+                                </h2>
+                                <div id="collapse${item.id}" class="accordion-collapse collapse" data-bs-parent="#urlAccordion">
+                                    <div class="accordion-body">
+                                        <button class="btn btn-sm btn-secondary mb-2" onclick="extractLinks(${item.id})">Search for links</button>
+                                        <div id="content-${item.id}">Loading content...</div>
+                                    </div>
+                                </div>
+                            `;
 
-                    accordion.appendChild(accordionItem);
+                            accordion.appendChild(accordionItem);
 
-                    // Add event listener to load content on expand
-                    const collapseElement = accordionItem.querySelector(`#collapse${item.id}`);
-                    collapseElement.addEventListener('show.bs.collapse', () => {
-                        const body = collapseElement.querySelector('.accordion-body');
-                        fetch(`/urlcontent/${item.id}`)
-                            .then(resp => resp.json())
-                            .then(contentData => {
-                                body.textContent = contentData.content;
-                            })
-                            .catch(err => {
-                                body.textContent = "Failed to load content.";
-                                console.error("Error loading content:", err);
-                            });
-                    }, { once: true });
+                            const collapseElement = accordionItem.querySelector(`#collapse${item.id}`);
+                            collapseElement.addEventListener('show.bs.collapse', () => {
+                                fetch(`/urlcontent/${item.id}`)
+                                    .then(resp => resp.json())
+                                    .then(contentData => {
+                                        document.getElementById(`content-${item.id}`).textContent = contentData.content;
+                                    });
+                            }, { once: true });
+                        } else {
+                            accordionItem.innerHTML = `
+                                <div class="accordion-header">
+                                    <div class="p-3 d-flex justify-content-between align-items-center">
+                                        <span>${item.url}</span>
+                                        <button class="btn btn-sm btn-primary" onclick="analyzeUrl('${item.url}')">Analyze page</button>
+                                    </div>
+                                </div>
+                            `;
+                            accordion.appendChild(accordionItem);
+                        }
+                    });
                 });
+        }
+
+        function extractLinks(urlId) {
+            fetch(`/urlcontent/${urlId}/extract-links/`, { method: 'POST' })
+                .then(resp => resp.json())
+                .then(result => {
+                    alert(`Discovered ${result.added_urls.length} new URLs.`);
+                    loadUrls();
+                });
+        }
+
+        function analyzeUrl(url) {
+            const formData = new URLSearchParams({ url });
+            fetch('/analyse/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: formData
             })
-            .catch(err => {
-                console.error("Failed to load URLs:", err);
-            });
-    </script>
-    <script>
-        document.getElementById('url-form').addEventListener('submit', function(e) {
-            const button = document.getElementById('analyse-btn');
-            const spinner = document.getElementById('btn-spinner');
-            const btnText = document.getElementById('btn-text');
+            .then(resp => resp.text())
+            .then(() => loadUrls());
+        }
 
-            // Disable the button and show spinner
-            button.disabled = true;
-            spinner.classList.remove('d-none');
-            btnText.textContent = 'Analyzing...';
-        });
+        // Load URLs on page load
+        document.addEventListener('DOMContentLoaded', loadUrls);
     </script>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
 </html>

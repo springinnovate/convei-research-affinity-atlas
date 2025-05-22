@@ -1,15 +1,18 @@
 """Entrypoint for AAA app."""
 
+import re
+from urllib.parse import urlparse, urljoin
+
 from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, Request, Form
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
+from fastapi import HTTPException
 
 from ..parser import fetch_page_content
 from ..database import SessionLocal, init_db
 from ..models import URLContent, Entity
-from ..vectorizer import embed_text, search_similar
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -51,15 +54,22 @@ async def analyse_url(request: Request, url: str = Form(...)):
 
 
 @app.get("/urls/")
-async def list_entities():
+async def list_urls():
     db = SessionLocal()
-    url_list = db.query(URLContent).all()
+    urls = db.query(URLContent).all()
     db.close()
-    return {"urls": [{"id": _url.id, "url": _url.url} for _url in url_list]}
+
+    return {
+        "urls": [
+            {"id": u.id, "url": u.url, "has_content": bool(u.content)}
+            for u in urls
+        ]
+    }
 
 
 @app.get("/urlcontent/{url_id}")
 async def url_content(url_id: int):
+    print(f"fetching content for {url_id}")
     db = SessionLocal()
     url_content = db.query(URLContent).filter(URLContent.id == url_id).first()
     db.close()
@@ -82,17 +92,43 @@ async def list_entities():
     return {"entities": [entity.name for entity in entities]}
 
 
-@app.get("/similar/{entity_id}")
-async def find_similar(entity_id: int):
+@app.post("/urlcontent/{url_id}/extract-links/")
+async def extract_links(url_id: int):
     db = SessionLocal()
-    target = db.query(Entity).filter(Entity.id == entity_id).first()
-    all_entities = db.query(Entity).filter(Entity.id != entity_id).all()
-    similar_entities = search_similar(target.embedding, all_entities)
+    url_content = db.query(URLContent).filter(URLContent.id == url_id).first()
+
+    if not url_content or not url_content.content:
+        db.close()
+        raise HTTPException(404, "Content not found or empty")
+
+    original_url = url_content.url
+    original_domain = urlparse(original_url).netloc
+
+    href_links = re.findall(
+        r'href=["\'](.*?)["\']', url_content.content, re.IGNORECASE
+    )
+
+    urls_found = set()
+    for link in href_links:
+        absolute_url = urljoin(original_url, link)
+        parsed_url = urlparse(absolute_url)
+        if (
+            parsed_url.scheme in {"http", "https"}
+            and parsed_url.netloc == original_domain
+        ):
+            urls_found.add(absolute_url)
+    new_entries = []
+    for url in urls_found:
+        existing = db.query(URLContent).filter(URLContent.url == url).first()
+        if not existing:
+            new_entry = URLContent(url=url, content=None)
+            db.add(new_entry)
+            new_entries.append(url)
+
+    db.commit()
     db.close()
-    return {
-        "target": target.name,
-        "similar": [e.name for e in similar_entities],
-    }
+
+    return {"added_urls": new_entries}
 
 
 if __name__ == "__main__":
