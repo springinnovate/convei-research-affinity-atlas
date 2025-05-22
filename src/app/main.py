@@ -1,19 +1,22 @@
 """Entrypoint for AAA app."""
 
-import re
 from urllib.parse import urlparse, urljoin
+import asyncio
+import re
+import uuid
 
 from pathlib import Path
 import uvicorn
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Request, Form, BackgroundTasks
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
 from fastapi import HTTPException
+from pydantic import BaseModel
 
 from ..parser import fetch_page_content
 from ..database import SessionLocal, init_db
-from ..models import URLContent, Entity
-
+from ..models import URLContent
+from ..crawler import crawl_domain
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -116,6 +119,38 @@ async def extract_links(url_id: int):
     db.close()
 
     return {"added_urls": new_entries}
+
+
+class CrawlRequest(BaseModel):
+    url: str
+    max_pages: int
+
+
+# Simple in-memory storage (move to DB/Redis later)
+progress_store = {}
+
+
+@app.post("/start_crawl/")
+async def start_crawl(request: CrawlRequest):
+    crawl_id = str(uuid.uuid4())
+    progress_store[crawl_id] = {
+        "analyzed": 0,
+        "discovered": 0,
+        "completed": False,
+    }
+
+    asyncio.create_task(
+        crawl_domain(request.url, request.max_pages, progress_store, crawl_id)
+    )
+    return {"crawl_id": crawl_id}
+
+
+@app.get("/crawl_status/{crawl_id}")
+async def crawl_status(crawl_id: str):
+    status = progress_store.get(crawl_id)
+    if not status:
+        return {"error": "Invalid crawl ID"}
+    return status
 
 
 if __name__ == "__main__":

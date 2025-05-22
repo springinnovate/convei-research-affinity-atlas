@@ -1,6 +1,14 @@
 import pickle
 
-from sqlalchemy import Column, Integer, String, ForeignKey, LargeBinary, Text
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    ForeignKey,
+    LargeBinary,
+    Text,
+    Boolean,
+)
 from sqlalchemy.orm import relationship
 
 from .database import Base
@@ -12,6 +20,7 @@ class URLContent(Base):
     url = Column(String, unique=True, index=True)
     title = Column(String, nullable=True)
     content = Column(Text, nullable=True)
+    analyzed = Column(Boolean, default=False)
     entities = relationship("Entity", back_populates="url_content")
 
 
