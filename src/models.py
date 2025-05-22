@@ -10,6 +10,7 @@ class URLContent(Base):
     __tablename__ = "url_contents"
     id = Column(Integer, primary_key=True)
     url = Column(String, unique=True, index=True)
+    title = Column(String, nullable=True)
     content = Column(Text, nullable=True)
     entities = relationship("Entity", back_populates="url_content")
 

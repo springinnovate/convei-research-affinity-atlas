@@ -30,26 +30,15 @@ async def read_root(request: Request):
 
 @app.post("/analyse/")
 async def analyse_url(request: Request, url: str = Form(...)):
-    content = await fetch_page_content(url)
+    result = await fetch_page_content(url)
 
     db = SessionLocal()
-    url_content = URLContent(url=url, content=content)
+    url_content = URLContent(
+        url=url, content=result["content"], title=result["title"]
+    )
     db.add(url_content)
     db.commit()
-    db.refresh(url_content)
-
-    # for entity_name in entities:
-    #     entity_embedding = embed_text(entity_name)
-    #     entity = Entity(
-    #         name=entity_name,
-    #         embedding=entity_embedding,
-    #         url_content_id=url_content.id,
-    #     )
-    #     db.add(entity)
-
-    db.commit()
     db.close()
-
     return RedirectResponse("/", status_code=303)
 
 
@@ -61,7 +50,12 @@ async def list_urls():
 
     return {
         "urls": [
-            {"id": u.id, "url": u.url, "has_content": bool(u.content)}
+            {
+                "id": u.id,
+                "title": u.title,
+                "url": u.url,
+                "has_content": bool(u.content),
+            }
             for u in urls
         ]
     }
@@ -80,16 +74,9 @@ async def url_content(url_id: int):
     return {
         "id": url_content.id,
         "url": url_content.url,
+        "title": url_content.title,
         "content": url_content.content,
     }
-
-
-@app.get("/entities/")
-async def list_entities():
-    db = SessionLocal()
-    entities = db.query(Entity).all()
-    db.close()
-    return {"entities": [entity.name for entity in entities]}
 
 
 @app.post("/urlcontent/{url_id}/extract-links/")

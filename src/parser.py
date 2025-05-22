@@ -26,11 +26,15 @@ async def fetch_page_content(url):
             content = await asyncio.wait_for(
                 page.content(), timeout=5000  # timeout in ms
             )
+            content = await asyncio.wait_for(page.content(), timeout=5000)
+            title = await page.title()
+
             if content is not None:
                 content = content.encode("ascii", errors="ignore").decode(
                     "ascii", errors="ignore"
                 )
-            return content
+            print(f"the title is: {title}")
+            return {"content": content, "title": title}
     except Exception as e:
         print(f"ERROR: {e}")
         raise
