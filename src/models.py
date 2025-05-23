@@ -33,5 +33,4 @@ class PersonContext(Base):
     url_content_id = Column(Integer, ForeignKey("url_contents.id"))
     name = Column(String, index=True)
     context = Column(Text)
-
     url_content = relationship("URLContent", back_populates="people_contexts")

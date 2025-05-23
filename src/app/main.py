@@ -15,8 +15,9 @@ from pydantic import BaseModel
 
 from ..parser import fetch_page_content
 from ..database import SessionLocal, init_db
-from ..models import URLContent
+from ..models import URLContent, PersonContext
 from ..crawler import crawl_domain
+from ..llm_analyzer import generate_bio
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -64,6 +65,18 @@ async def list_urls():
     }
 
 
+@app.get("/people/")
+async def list_people():
+    db = SessionLocal()
+    people = db.query(PersonContext).all()
+    db.close()
+    return {
+        "people": [
+            {"id": p.id, "name": p.name, "context": p.context} for p in people
+        ]
+    }
+
+
 @app.get("/urlcontent/{url_id}")
 async def url_content(url_id: int):
     print(f"fetching content for {url_id}")
@@ -80,6 +93,14 @@ async def url_content(url_id: int):
         "title": url_content.title,
         "text_content": url_content.text_content,
     }
+
+
+@app.get("/person/{person_id}/bio")
+async def get_bio(person_id: int):
+    print(f"generate bio for person {person_id}")
+    bio = await generate_bio(person_id)
+    print(f"here's the bio: {bio}")
+    return bio
 
 
 class CrawlRequest(BaseModel):

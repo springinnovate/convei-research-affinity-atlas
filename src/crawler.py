@@ -9,6 +9,7 @@ from playwright.async_api import async_playwright
 
 from .database import SessionLocal
 from .models import URLContent
+from .llm_analyzer import analyze_people_context
 
 
 async def fetch_page(url, page):
@@ -65,11 +66,11 @@ async def crawl_domain(start_url, max_pages, progress_dict, crawl_id):
                     analyzed=True,
                 )
                 db.add(page_record)
+                db.commit()
+                asyncio.create_task(analyze_people_context(page_record.id))
             else:
                 html_content = page_record.html_content
                 max_pages += 1  # we didn't search it, so do one more
-
-            db.commit()
 
             links = await extract_links(html_content, url, domain)
             for link in links:
