@@ -13,7 +13,7 @@ from .llm_analyzer import analyze_people_context
 
 
 async def fetch_page(url, page):
-    await page.goto(url)
+    await page.goto(url, wait_until="networkidle")
     html_content = await page.content()
     text_content = await page.evaluate("document.body.innerText")
     title = await page.title()
