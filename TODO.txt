@@ -1,0 +1,6 @@
+* seems like when we ask for a person it will hang while it's also parsing a webpage
+* also seems like it waits to analyze the webpage before it parses the next one
+* time to make a permanent database?
+* make a search function
+    * most like "x"
+    * "search term"
