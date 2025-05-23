@@ -66,6 +66,7 @@ async def crawl_domain(start_url, max_pages, progress_dict, crawl_id):
                 )
                 db.add(page_record)
             else:
+                html_content = page_record.html_content
                 max_pages += 1  # we didn't search it, so do one more
 
             db.commit()
