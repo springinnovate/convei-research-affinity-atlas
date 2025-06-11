@@ -1,6 +1,6 @@
 # CONVEI Research Affinity Atlas
 
-**CONVEI Research Affinity Atlas** is an open-source tool designed to automatically map research conferences, extract researcher profiles, and discover scholarly affinities among participants. By leveraging advanced web scraping techniques and state-of-the-art language models, CONVEI creates comprehensive research dossiers, enabling research to effortlessly discover collaborators, related research interests, and unexplored scholarly networks.
+The **CONVEI Research Affinity Atlas** is an open-source tool designed to automatically map research conferences, extract researcher profiles, and discover scholarly affinities among participants. By leveraging advanced web scraping techniques and state-of-the-art language models, CONVEI creates comprehensive research dossiers, enabling research to effortlessly discover collaborators, related research interests, and unexplored scholarly networks.
 
 ## Core Features
 
