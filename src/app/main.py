@@ -69,11 +69,7 @@ async def list_people():
     db = SessionLocal()
     people = db.query(PersonContext).all()
     db.close()
-    return {
-        "people": [
-            {"id": p.id, "name": p.name, "context": p.context} for p in people
-        ]
-    }
+    return {"people": set(p.name for p in people)}
 
 
 @app.get("/urlcontent/{url_id}")
