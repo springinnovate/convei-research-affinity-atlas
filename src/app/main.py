@@ -1,13 +1,11 @@
 """Entrypoint for AAA app."""
 
-from urllib.parse import urlparse, urljoin
 import asyncio
-import re
 import uuid
 
 from pathlib import Path
 import uvicorn
-from fastapi import FastAPI, Request, Form, BackgroundTasks
+from fastapi import FastAPI, Request, Form
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
 from fastapi import HTTPException
@@ -23,6 +21,7 @@ BASE_DIR = Path(__file__).resolve().parent
 
 app = FastAPI()
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+templates.env.auto_reload = True
 
 init_db()
 
@@ -108,31 +107,43 @@ class CrawlRequest(BaseModel):
     max_pages: int
 
 
-# Simple in-memory storage (move to DB/Redis later)
-progress_store = {}
+PROGRESS_STORE = {}
 
 
 @app.post("/start_crawl/")
 async def start_crawl(request: CrawlRequest):
-    crawl_id = str(uuid.uuid4())
-    progress_store[crawl_id] = {
+    crawl_id = request.url
+    existing_progress = PROGRESS_STORE.get(crawl_id)
+    if existing_progress and not existing_progress["completed"]:
+        return {
+            "crawl_id": crawl_id,
+            "status": "already in progress",
+        }
+
+    PROGRESS_STORE[crawl_id] = {
         "analyzed": 0,
         "discovered": 0,
         "completed": False,
     }
 
     asyncio.create_task(
-        crawl_domain(request.url, request.max_pages, progress_store, crawl_id)
+        crawl_domain(request.url, request.max_pages, PROGRESS_STORE, crawl_id)
     )
-    return {"crawl_id": crawl_id}
+    return {"crawl_id": crawl_id, "status": "started"}
 
 
 @app.get("/crawl_status/{crawl_id}")
 async def crawl_status(crawl_id: str):
-    status = progress_store.get(crawl_id)
+    status = PROGRESS_STORE.get(crawl_id)
     if not status:
         return {"error": "Invalid crawl ID"}
     return status
+
+
+# add after PROGRESS_STORE definition
+@app.get("/active_crawls/")
+async def active_crawls():
+    return PROGRESS_STORE
 
 
 if __name__ == "__main__":

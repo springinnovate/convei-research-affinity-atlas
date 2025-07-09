@@ -1,208 +1,276 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Academic Affinity Atlas</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
-</head>
-<body>
-    <nav class="navbar navbar-expand-lg bg-primary navbar-dark mb-4">
-        <div class="container">
-            <a class="navbar-brand" href="#">Academic Affinity Atlas</a>
-        </div>
-    </nav>
-
-    <div class="container">
-        <div class="card shadow-sm mb-4">
-            <div class="card-body">
-                <h5 class="card-title">Analyze a Conference or Academic URL</h5>
-                <form id="crawl-form" class="row g-2">
-                    <div class="col-md-8">
-                        <input type="url" class="form-control" id="url" placeholder="URL to analyze" required>
-                    </div>
-                    <div class="col-md-2">
-                        <input type="number" class="form-control" id="max-pages" placeholder="Max pages" required value="1">
-                    </div>
-                    <div class="col-md-2">
-                        <button type="submit" class="btn btn-primary w-100" id="crawl-btn">
-                            <span id="crawl-btn-text">Start Crawl</span>
-                            <span id="crawl-btn-spinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
-                        </button>
-                    </div>
-                </form>
-                <div id="crawl-status" class="mt-3"></div>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Academic Affinity Atlas</title>
+        <link
+            rel="stylesheet"
+            href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        />
+    </head>
+    <body>
+        <nav class="navbar navbar-expand-lg bg-primary navbar-dark mb-4">
+            <div class="container">
+                <a class="navbar-brand" href="#">Academic Affinity Atlas</a>
             </div>
+        </nav>
+
+        <div class="container">
+            <div class="card shadow-sm mb-4">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        Analyze a Conference or Academic URL
+                    </h5>
+                    <form id="crawl-form" class="row g-2">
+                        <div class="col-md-8">
+                            <input
+                                type="url"
+                                class="form-control"
+                                id="url"
+                                placeholder="URL to analyze"
+                                required
+                            />
+                        </div>
+                        <div class="col-md-2">
+                            <input
+                                type="number"
+                                class="form-control"
+                                id="max-pages"
+                                placeholder="Max pages"
+                                required
+                                value="1"
+                            />
+                        </div>
+                        <div class="col-md-2">
+                            <button
+                                type="submit"
+                                class="btn btn-primary w-100"
+                                id="crawl-btn"
+                            >
+                                <span id="crawl-btn-text">Start Crawl</span>
+                                <span
+                                    id="crawl-btn-spinner"
+                                    class="spinner-border spinner-border-sm d-none"
+                                    role="status"
+                                ></span>
+                            </button>
+                        </div>
+                    </form>
+
+                    <h6 class="mt-4">Active Crawls</h6>
+                    <div id="crawl-status-list"></div>
+                </div>
+            </div>
+
+            <h4 class="mt-5 mb-3">People Found</h4>
+            <div class="accordion" id="peopleAccordion"></div>
+
+            <h4 class="mb-3">Crawled Pages</h4>
+            <div class="accordion" id="urlAccordion"></div>
         </div>
 
-        <h4 class="mt-5 mb-3">People Found</h4>
-        <div class="accordion" id="peopleAccordion"></div>
+        <script>
+            const activeCrawlIds = new Set();
+            function createOrGetRow(id) {
+                let row = document.getElementById("crawl-row-" + id);
+                if (!row) {
+                    row = document.createElement("div");
+                    row.id = "crawl-row-" + id;
+                    row.className = "alert alert-info py-1 mb-2";
+                    document
+                        .getElementById("crawl-status-list")
+                        .appendChild(row);
+                }
+                return row;
+            }
+            function updateRow(row, msg, done = false) {
+                row.textContent = msg;
+                row.className =
+                    "alert " +
+                    (done ? "alert-success" : "alert-info") +
+                    " py-1 mb-2";
+            }
 
-        <h4 class="mb-3">Crawled Pages</h4>
-        <div class="accordion" id="urlAccordion">
-        </div>
-    </div>
-
-    <script>
-        let knownUrls = new Set();
-
-        function loadUrls() {
-            fetch('/urls/')
-                .then(response => response.json())
-                .then(data => {
-                    const accordion = document.getElementById('urlAccordion');
-
-                    data.urls.forEach((item) => {
-                        if (knownUrls.has(item.id)) return;  // Skip if already displayed
-                        knownUrls.add(item.id);
-
-                        const accordionItem = document.createElement('div');
-                        accordionItem.className = 'accordion-item';
-
-                        if (item.has_content) {
-                            accordionItem.innerHTML = `
-                                <h2 class="accordion-header" id="heading${item.id}">
-                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse${item.id}" aria-expanded="false">
-                                        ${item.title ? item.title : 'No title'}: (<a href="${item.url}">${item.url}</a>)
-                                    </button>
-                                </h2>
-                                <div id="collapse${item.id}" class="accordion-collapse collapse" data-bs-parent="#urlAccordion">
-                                    <div class="accordion-body">
-                                        <div id="content-${item.id}">Loading content...</div>
-                                    </div>
-                                </div>
-                            `;
-                            accordion.appendChild(accordionItem);
-
-                            const collapseElement = accordionItem.querySelector(`#collapse${item.id}`);
-                            collapseElement.addEventListener('show.bs.collapse', () => {
-                                fetch(`/urlcontent/${item.id}`)
-                                    .then(resp => resp.json())
-                                    .then(contentData => {
-                                        document.getElementById(`content-${item.id}`).textContent = contentData.text_content;
-                                    });
-                            }, { once: true });
-                        } else {
-                            accordionItem.innerHTML = `
-                                <div class="accordion-header">
-                                    <div class="p-3 d-flex justify-content-between align-items-center">
-                                        <span>${item.title ? item.title : 'No title'}: (${item.url})</span>
-                                    </div>
-                                </div>
-                            `;
-                            accordion.appendChild(accordionItem);
-                        }
-                    });
-                });
-        }
-        document.addEventListener('DOMContentLoaded', loadUrls);
-    </script>
-    <script>
-        let knownPeople = new Set();
-        function loadPeople() {
-            fetch('/people/')
-                .then(res => res.json())
-                .then(data => {
-                    const accordion = document.getElementById('peopleAccordion');
-                    data.people.forEach(person => {
-                        if (knownPeople.has(person.id)) return;
-                        knownPeople.add(person.id);
-
-                        const accordionItem = document.createElement('div');
-                        accordionItem.className = 'accordion-item';
-
-                        accordionItem.innerHTML = `
-                            <h2 class="accordion-header">
-                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#person-${person.id}">
-                                    ${person.name}
-                                </button>
-                            </h2>
-                            <div id="person-${person.id}" class="accordion-collapse collapse" data-bs-parent="#peopleAccordion">
-                                <div class="accordion-body" id="bio-${person.id}">
-                                    Generating bio...
-                                </div>
-                            </div>
-                        `;
-
-                        accordion.appendChild(accordionItem);
-
-                        const collapseElement = accordionItem.querySelector(`#person-${person.id}`);
-                        collapseElement.addEventListener('show.bs.collapse', () => {
-                            fetch(`/person/${person.id}/bio`)
-                                .then(res => res.json())
-                                .then(result => {
-                                    document.getElementById(`bio-${person.id}`).innerText = result.bio;
-                                })
-                                .catch(() => {
-                                    document.getElementById(`bio-${person.id}`).innerText = "Failed to generate bio.";
-                                });
-                        }, { once: true });
-                    });
-                });
-        }
-        document.addEventListener('DOMContentLoaded', loadPeople);
-    </script>
-    <script>
-        document.getElementById('crawl-form').addEventListener('submit', e => {
-            e.preventDefault();
-            const url = document.getElementById('url').value;
-            const max_pages = parseInt(document.getElementById('max-pages').value);
-
-            const button = document.getElementById('crawl-btn');
-            const btnText = document.getElementById('crawl-btn-text');
-            const btnSpinner = document.getElementById('crawl-btn-spinner');
-
-            button.disabled = true;
-            btnText.textContent = 'Crawling...';
-            btnSpinner.classList.remove('d-none');
-
-            fetch('/start_crawl/', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({url, max_pages})
-            })
-            .then(res => res.json())
-            .then(data => {
-                const crawlId = data.crawl_id;
-                pollStatus(crawlId, button, btnText, btnSpinner);
-            });
-        });
-
-        function pollStatus(crawlId, button, btnText, btnSpinner) {
-            const statusDiv = document.getElementById('crawl-status');
-            const interval = setInterval(() => {
-                fetch(`/crawl_status/${crawlId}`)
-                    .then(res => res.json())
-                    .then(status => {
-                        if (status.error) {
-                            statusDiv.textContent = status.error;
-                            clearInterval(interval);
-                            button.disabled = true;
-                            btnText.textContent = 'ERROR!';
-                            btnSpinner.classList.add('d-none');
-                        } else {
-                            statusDiv.textContent = `Analyzed ${status.analyzed} of ${status.discovered} discovered pages...`;
-                            loadUrls();
-                            loadPeople();
-                            if (status.completed) {
-                                statusDiv.textContent += " Done!";
-                                clearInterval(interval);
-                                button.disabled = false;
-                                btnText.textContent = 'Start Crawl';
-                                btnSpinner.classList.add('d-none');
+            function loadActiveCrawls() {
+                fetch("/active_crawls/")
+                    .then((r) => r.json())
+                    .then((data) => {
+                        Object.keys(data).forEach((id) => {
+                            if (!activeCrawlIds.has(id)) {
+                                activeCrawlIds.add(id);
+                                pollStatus(id);
                             }
-                        }
-                    })
-                    .catch(err => {
-                        statusDiv.textContent = "Error checking status.";
-                        clearInterval(interval);
-                        button.disabled = false;
-                        btnText.textContent = 'Start Crawl';
-                        btnSpinner.classList.add('d-none');
+                        });
                     });
-            }, 2000);
-        }
-    </script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-</body>
+            }
+
+            document
+                .getElementById("crawl-form")
+                .addEventListener("submit", (e) => {
+                    e.preventDefault();
+                    const url = document.getElementById("url").value;
+                    const max_pages = parseInt(
+                        document.getElementById("max-pages").value,
+                    );
+                    const btn = document.getElementById("crawl-btn");
+                    const txt = document.getElementById("crawl-btn-text");
+                    const spn = document.getElementById("crawl-btn-spinner");
+                    btn.disabled = true;
+                    txt.textContent = "Crawling...";
+                    spn.classList.remove("d-none");
+
+                    fetch("/start_crawl/", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ url, max_pages }),
+                    })
+                        .then((r) => r.json())
+                        .then((d) => {
+                            const id = d.crawl_id;
+                            activeCrawlIds.add(id);
+                            pollStatus(id, () => {
+                                btn.disabled = false;
+                                txt.textContent = "Start Crawl";
+                                spn.classList.add("d-none");
+                            });
+                        });
+                });
+
+            function pollStatus(crawlId, doneCallback) {
+                const row = createOrGetRow(crawlId);
+                const int = setInterval(() => {
+                    fetch(`/crawl_status/${crawlId}`)
+                        .then((r) => r.json())
+                        .then((s) => {
+                            if (s.error) {
+                                updateRow(row, s.error, true);
+                                clearInterval(int);
+                                if (doneCallback) doneCallback();
+                            } else {
+                                updateRow(
+                                    row,
+                                    `Crawl ${crawlId.slice(0, 8)} — analysed ${s.analyzed}/${s.discovered}`,
+                                    s.completed,
+                                );
+                                loadUrls();
+                                loadPeople();
+                                if (s.completed) {
+                                    clearInterval(int);
+                                    if (doneCallback) doneCallback();
+                                }
+                            }
+                        })
+                        .catch(() => {
+                            updateRow(row, "Error checking status", true);
+                            clearInterval(int);
+                            if (doneCallback) doneCallback();
+                        });
+                }, 2000);
+            }
+
+            /* ---------------- URLs accordion ---------------- */
+            let knownUrls = new Set();
+            function loadUrls() {
+                fetch("/urls/")
+                    .then((r) => r.json())
+                    .then((data) => {
+                        const acc = document.getElementById("urlAccordion");
+                        data.urls.forEach((item) => {
+                            if (knownUrls.has(item.id)) return;
+                            knownUrls.add(item.id);
+                            const it = document.createElement("div");
+                            it.className = "accordion-item";
+                            if (item.has_content) {
+                                it.innerHTML = `
+<h2 class='accordion-header' id='heading${item.id}'>
+ <button class='accordion-button collapsed' type='button' data-bs-toggle='collapse' data-bs-target='#collapse${item.id}'>
+  ${item.title ? item.title : "No title"}: (<a href='${item.url}'>${item.url}</a>)
+ </button>
+</h2>
+<div id='collapse${item.id}' class='accordion-collapse collapse' data-bs-parent='#urlAccordion'>
+ <div class='accordion-body'><div id='content-${item.id}'>Loading content...</div></div>
+</div>`;
+                                acc.appendChild(it);
+                                it.querySelector(
+                                    `#collapse${item.id}`,
+                                ).addEventListener(
+                                    "show.bs.collapse",
+                                    () => {
+                                        fetch(`/urlcontent/${item.id}`)
+                                            .then((r) => r.json())
+                                            .then((c) => {
+                                                document.getElementById(
+                                                    `content-${item.id}`,
+                                                ).textContent = c.text_content;
+                                            });
+                                    },
+                                    { once: true },
+                                );
+                            } else {
+                                it.innerHTML = `<div class='accordion-header'><div class='p-3'>${item.title ? item.title : "No title"}: (${item.url})</div></div>`;
+                                acc.appendChild(it);
+                            }
+                        });
+                    });
+            }
+            document.addEventListener("DOMContentLoaded", () => {
+                loadUrls();
+                loadActiveCrawls();
+                setInterval(loadActiveCrawls, 4000);
+            });
+
+            let knownPeople = new Set();
+            function loadPeople() {
+                fetch("/people/")
+                    .then((r) => r.json())
+                    .then((data) => {
+                        const acc = document.getElementById("peopleAccordion");
+                        data.people.forEach((p) => {
+                            if (knownPeople.has(p.id)) return;
+                            knownPeople.add(p.id);
+                            const it = document.createElement("div");
+                            it.className = "accordion-item";
+                            it.innerHTML = `
+<h2 class='accordion-header'>
+ <button class='accordion-button collapsed' type='button' data-bs-toggle='collapse' data-bs-target='#person-${p.id}'>${p.name}</button>
+</h2>
+<div id='person-${p.id}' class='accordion-collapse collapse' data-bs-parent='#peopleAccordion'>
+ <div class='accordion-body' id='bio-${p.id}'>Generating bio...</div>
+</div>`;
+                            acc.appendChild(it);
+                            it.querySelector(
+                                `#person-${p.id}`,
+                            ).addEventListener(
+                                "show.bs.collapse",
+                                () => {
+                                    fetch(`/person/${p.id}/bio`)
+                                        .then((r) => r.json())
+                                        .then((b) => {
+                                            document.getElementById(
+                                                `bio-${p.id}`,
+                                            ).innerText = b.bio;
+                                        })
+                                        .catch(() => {
+                                            document.getElementById(
+                                                `bio-${p.id}`,
+                                            ).innerText =
+                                                "Failed to generate bio.";
+                                        });
+                                },
+                                { once: true },
+                            );
+                        });
+                    });
+            }
+
+            document.addEventListener("DOMContentLoaded", () => {
+                loadUrls();
+                loadActiveCrawls();
+                loadPeople();
+                setInterval(loadActiveCrawls, 4000);
+            });
+        </script>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    </body>
 </html>

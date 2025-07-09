@@ -1,6 +1,15 @@
-* seems like when we ask for a person it will hang while it's also parsing a webpage
-* also seems like it waits to analyze the webpage before it parses the next one
-* time to make a permanent database?
-* make a search function
-    * most like "x"
-    * "search term"
+TODO:
+* convei searcher
+    * seems like when we ask for a person it will hang while it's also parsing a webpage
+    * also seems like it waits to analyze the webpage before it parses the next eone
+    * time to make a permanent database?
+    * make a search function
+        * most like "x"
+        * "search term"
+    * search people like pcld
+        * people should have references to where they were seen and should consolidate to just one name
+            * those can accordion open
+    * "search box" to ask questions about people
+        * this should trigger bios to be generated if they are "dirty"
+
+    acknowldement

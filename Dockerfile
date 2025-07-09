@@ -1,3 +1,5 @@
+# Run command:
+# docker build -t craa . && docker run --rm -it -v %CD%/data:/app/data -p 8000:8000 craa
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1
