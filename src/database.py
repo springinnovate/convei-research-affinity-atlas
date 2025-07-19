@@ -14,6 +14,6 @@ Base = declarative_base()
 
 
 def init_db():
-    from .models import URLContent, PersonContext
+    from .models import URLContent, EntityContext
 
     Base.metadata.create_all(bind=engine)

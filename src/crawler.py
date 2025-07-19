@@ -9,7 +9,7 @@ from playwright.async_api import async_playwright
 
 from .database import SessionLocal
 from .models import URLContent
-from .llm_analyzer import analyze_people_context
+from .llm_analyzer import analyze_entity_context
 
 
 async def fetch_page(url, page):
@@ -30,13 +30,11 @@ async def extract_links(content, base_url, domain):
     return links
 
 
-async def crawl_domain(start_url, max_pages, progress_dict, crawl_id):
+async def crawl_domain(start_url, max_pages, progress_store, crawl_id):
     db = SessionLocal()
     domain = urlparse(start_url).netloc
     queue = asyncio.Queue()
     visited = set()
-
-    progress_dict[crawl_id] = {"analyzed": 0, "discovered": 1}
 
     await queue.put(start_url)
     visited.add(start_url)
@@ -46,7 +44,7 @@ async def crawl_domain(start_url, max_pages, progress_dict, crawl_id):
         page = await browser.new_page()
         while (
             not queue.empty()
-            and progress_dict[crawl_id]["analyzed"] < max_pages
+            and progress_store[crawl_id]["analyzed"] < max_pages
         ):
             url = await queue.get()
 
@@ -63,11 +61,13 @@ async def crawl_domain(start_url, max_pages, progress_dict, crawl_id):
                     html_content=html_content,
                     text_content=text_content,
                     title=title,
-                    analyzed=True,
+                    analyzed=False,
                 )
                 db.add(page_record)
                 db.commit()
-                asyncio.create_task(analyze_people_context(page_record.id))
+                asyncio.create_task(
+                    analyze_entity_context(page_record.url_content_id)
+                )
             else:
                 html_content = page_record.html_content
                 max_pages += 1  # we didn't search it, so do one more
@@ -78,9 +78,9 @@ async def crawl_domain(start_url, max_pages, progress_dict, crawl_id):
                     visited.add(link)
                     await queue.put(link)
 
-            progress_dict[crawl_id]["analyzed"] += 1
-            progress_dict[crawl_id]["discovered"] = len(visited)
+            progress_store[crawl_id]["analyzed"] += 1
+            progress_store[crawl_id]["discovered"] = len(visited)
         await browser.close()
 
     db.close()
-    progress_dict[crawl_id]["completed"] = True
+    progress_store[crawl_id]["completed"] = True

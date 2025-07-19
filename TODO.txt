@@ -1,8 +1,10 @@
 TODO:
 * convei searcher
+    * the active crawls seems laggy might be duplicated code in index.html, i'll have to check later
+    * actually report about that person you just selected
+    * collapse the crawled pages
+    * put a count of how many pages are crawled
     * seems like when we ask for a person it will hang while it's also parsing a webpage
-    * also seems like it waits to analyze the webpage before it parses the next eone
-    * time to make a permanent database?
     * make a search function
         * most like "x"
         * "search term"
@@ -11,5 +13,5 @@ TODO:
             * those can accordion open
     * "search box" to ask questions about people
         * this should trigger bios to be generated if they are "dirty"
-
-    acknowldement
+    * time to make a permanent database?
+    * Rather than hard-code the AI prompts for analysis of the webpage and people, allow that to be a setting, that way we can change it to 'entities'

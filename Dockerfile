@@ -1,5 +1,6 @@
 # Run command:
-# docker build -t craa . && docker run --rm -it -v %CD%/data:/app/data -p 8000:8000 craa
+# docker build -t craa . && docker run --rm -it -v %CD%/data:/app/data -v %CD%/src:/app/src -p 8000:8000 craa
+
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1
@@ -21,11 +22,11 @@ RUN poetry config virtualenvs.create false \
 # Install playwright browsers
 RUN playwright install chromium --with-deps
 
-COPY src ./src
+#COPY src ./src
 COPY .env .env
 
 RUN mkdir -p data
 
 EXPOSE 8000
 
-CMD ["uvicorn", "src.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

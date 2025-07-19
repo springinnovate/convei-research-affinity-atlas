@@ -8,18 +8,22 @@ import uvicorn
 from fastapi import FastAPI, Request, Form
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi import HTTPException
 from pydantic import BaseModel
 
 from ..parser import fetch_page_content
 from ..database import SessionLocal, init_db
-from ..models import URLContent, PersonContext
+from ..models import URLContent, Entity
 from ..crawler import crawl_domain
 from ..llm_analyzer import generate_bio
 
 BASE_DIR = Path(__file__).resolve().parent
 
 app = FastAPI()
+app.mount(
+    "/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static"
+)
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.auto_reload = True
 
@@ -54,7 +58,7 @@ async def list_urls():
     return {
         "urls": [
             {
-                "id": u.id,
+                "id": u.url_content_id,
                 "title": u.title,
                 "url": u.url,
                 "has_content": bool(u.text_content),
@@ -64,19 +68,21 @@ async def list_urls():
     }
 
 
-@app.get("/people/")
-async def list_people():
+@app.get("/entities/")
+async def list_entities():
     db = SessionLocal()
-    people = db.query(PersonContext).all()
+    entities = db.query(Entity).all()
     db.close()
-    return {"people": set(p.name for p in people)}
+    return {"entities": set(p.name for p in entities)}
 
 
 @app.get("/urlcontent/{url_id}")
 async def url_content(url_id: int):
     print(f"fetching content for {url_id}")
     db = SessionLocal()
-    url_content = db.query(URLContent).filter(URLContent.id == url_id).first()
+    url_content = (
+        db.query(URLContent).filter(URLContent.url_content_id == url_id).first()
+    )
     db.close()
 
     if not url_content:
@@ -110,6 +116,7 @@ PROGRESS_STORE = {}
 async def start_crawl(request: CrawlRequest):
     crawl_id = request.url
     existing_progress = PROGRESS_STORE.get(crawl_id)
+    print(existing_progress)
     if existing_progress and not existing_progress["completed"]:
         return {
             "crawl_id": crawl_id,
@@ -128,8 +135,10 @@ async def start_crawl(request: CrawlRequest):
     return {"crawl_id": crawl_id, "status": "started"}
 
 
-@app.get("/crawl_status/{crawl_id}")
-async def crawl_status(crawl_id: str):
+@app.post("/crawl_status")
+async def crawl_status(request: Request):
+    data = await request.json()
+    crawl_id = data.get("crawl_id")
     status = PROGRESS_STORE.get(crawl_id)
     if not status:
         return {"error": "Invalid crawl ID"}

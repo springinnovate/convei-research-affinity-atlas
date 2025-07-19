@@ -11,6 +11,7 @@
         <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
         <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+        <link rel="icon" href="{{ url_for('static', path='favicon.ico') }}">
     </head>
     <body>
         <nav class="navbar navbar-expand-lg bg-primary navbar-dark mb-4">
@@ -66,8 +67,8 @@
                 </div>
             </div>
 
-            <h4 class="mt-5 mb-3">People Found</h4>
-            <div id="peopleSelectContainer">
+            <h4 class="mt-5 mb-3">Entities Found</h4>
+            <div id="EntitiesSelectContainer">
                 <!-- The value select element will be inserted here -->
             </div>
 
@@ -76,6 +77,14 @@
         </div>
 
         <script>
+            let crawlInterval = null;
+            let currentIntervalDelay = 4000;
+
+            function startCrawlPolling(delay) {
+                if (crawlInterval) clearInterval(crawlInterval);
+                currentIntervalDelay = delay;
+                crawlInterval = setInterval(loadActiveCrawls, delay);
+            }
             const activeCrawlIds = new Set();
             function createOrGetRow(id) {
                 let row = document.getElementById("crawl-row-" + id);
@@ -101,12 +110,21 @@
                 fetch("/active_crawls/")
                     .then((r) => r.json())
                     .then((data) => {
-                        Object.keys(data).forEach((id) => {
-                            if (!activeCrawlIds.has(id)) {
-                                activeCrawlIds.add(id);
-                                pollStatus(id);
-                            }
+                        const newCrawls = Object.keys(data).filter((id) => !activeCrawlIds.has(id));
+                        newCrawls.forEach((id) => {
+                            activeCrawlIds.add(id);
+                            pollStatus(id);
                         });
+
+                        // Dynamically adjust interval
+                        if (newCrawls.length > 0 && currentIntervalDelay !== 100) {
+                            startCrawlPolling(100);
+                        } else if (Object.keys(data).length === 0 && currentIntervalDelay !== 4000) {
+                            startCrawlPolling(4000);
+                        }
+                    })
+                    .catch((err) => {
+                        console.error("Error checking active crawls:", err);
                     });
             }
 
@@ -122,6 +140,7 @@
                     const txt = document.getElementById("crawl-btn-text");
                     const spn = document.getElementById("crawl-btn-spinner");
                     btn.disabled = true;
+                    startCrawlPolling(100);
                     txt.textContent = "Crawling...";
                     spn.classList.remove("d-none");
 
@@ -142,10 +161,14 @@
                         });
                 });
 
-            function pollStatus(crawlId, doneCallback) {
-                const row = createOrGetRow(crawlId);
-                const int = setInterval(() => {
-                    fetch(`/crawl_status/${crawlId}`)
+                function pollStatus(crawlId, doneCallback) {
+                    const row = createOrGetRow(crawlId);
+                    const int = setInterval(() => {
+                        fetch(`/crawl_status`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ crawl_id: crawlId })
+                        })
                         .then((r) => r.json())
                         .then((s) => {
                             if (s.error) {
@@ -153,13 +176,18 @@
                                 clearInterval(int);
                                 if (doneCallback) doneCallback();
                             } else {
+                                const url = new URL(crawlId);
+                                const statusText = (s.analyzed === s.discovered) && (s.discovered > 0)
+                                  ? 'complete'
+                                  : `${s.analyzed}/${s.discovered}`;
+
                                 updateRow(
-                                    row,
-                                    `Crawl ${crawlId.slice(0, 8)} — analysed ${s.analyzed}/${s.discovered}`,
-                                    s.completed,
+                                  row,
+                                  `[${statusText}] ${url.hostname}${url.pathname}`,
+                                  s.completed,
                                 );
                                 loadUrls();
-                                loadPeople();
+                                loadEntities();
                                 if (s.completed) {
                                     clearInterval(int);
                                     if (doneCallback) doneCallback();
@@ -171,8 +199,8 @@
                             clearInterval(int);
                             if (doneCallback) doneCallback();
                         });
-                }, 2000);
-            }
+                    }, 2000);
+                }
 
             /* ---------------- URLs accordion ---------------- */
             let knownUrls = new Set();
@@ -219,36 +247,31 @@
                         });
                     });
             }
-            document.addEventListener("DOMContentLoaded", () => {
-                loadUrls();
-                loadActiveCrawls();
-                setInterval(loadActiveCrawls, 4000);
-            });
 
-            let knownPeople = new Set();
-            function loadPeople() {
-                fetch("/people/")
+            let knownEntities = new Set();
+            function loadEntities() {
+                fetch("/entities/")
                     .then((r) => r.json())
                     .then((data) => {
-                        const peopleSelectContainer = document.getElementById("peopleSelectContainer");
-                        peopleSelectContainer.innerHTML = '';
+                        const EntitiesSelectContainer = document.getElementById("EntitiesSelectContainer");
+                        EntitiesSelectContainer.innerHTML = '';
 
                         const select = document.createElement('select');
-                        select.id = 'peopleSelect';
+                        select.id = 'EntitiesSelect';
                         select.style.width = '100%';
                         select.multiple = true;  // <-- Enable multiple selection here
 
-                        data.people.forEach((name) => {
+                        data.entities.forEach((name) => {
                             const option = document.createElement('option');
                             option.value = name;
                             option.text = name;
                             select.appendChild(option);
                         });
 
-                        peopleSelectContainer.appendChild(select);
+                        EntitiesSelectContainer.appendChild(select);
 
                         $(select).select2({
-                            placeholder: 'Search and select people',
+                            placeholder: 'Search and select Entities',
                             allowClear: true,
                             width: '100%',
                         });
@@ -283,8 +306,8 @@
             document.addEventListener("DOMContentLoaded", () => {
                 loadUrls();
                 loadActiveCrawls();
-                loadPeople();
-                setInterval(loadActiveCrawls, 4000);
+                loadEntities();
+                startCrawlPolling(4000);
             });
         </script>
         <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>

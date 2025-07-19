@@ -1,14 +1,21 @@
 """Module to handle all LLM analysis."""
 
 import logging
-import os
+import hashlib
 import json
 
 from sqlalchemy import func
 from openai import OpenAI
 from dotenv import load_dotenv
 
-from .models import URLContent, PersonContext
+from .models import (
+    URLContent,
+    EntityContext,
+    Entity,
+    EntityPage,
+    EntityContextPage,
+)
+from .models import EntityPage
 from .database import SessionLocal
 
 load_dotenv()
@@ -35,9 +42,9 @@ EXTRACT_PEOPLE_SCHEMA = {
 }
 
 
-async def generate_bio(person_id: int):
+async def generate_bio(entity_id: int):
     db = SessionLocal()
-    person = db.query(PersonContext).get(person_id)
+    entity = db.query(EntityContext).get(entity_id)
     db.close()
 
     messages = [
@@ -54,10 +61,10 @@ async def generate_bio(person_id: int):
         {
             "role": "user",
             "content": f"""
-            Name: {person.name}
+            Name: {entity.name}
 
             Context:
-            {person.context}
+            {entity.context}
             """,
         },
     ]
@@ -74,15 +81,17 @@ async def generate_bio(person_id: int):
     return {"bio": bio_text}
 
 
-async def analyze_people_context(url_content_id: int):
+async def analyze_entity_context(url_content_id):
+    print(f"analyzing people content for {url_content_id}")
+    db = SessionLocal()
+
     try:
-        print(f"analyzing people content for {url_content_id}")
-        db = SessionLocal()
         url_content = db.query(URLContent).get(url_content_id)
         if not url_content or not url_content.text_content:
             print("found nothing, closing")
-            db.close()
             return
+
+        from openai import OpenAI
 
         client = OpenAI()
 
@@ -90,22 +99,19 @@ async def analyze_people_context(url_content_id: int):
             {
                 "role": "system",
                 "content": (
-                    "Extract all individuals mentioned explicitly in the provided snippet. "
-                    "For each individual, include ALL relevant surrounding context "
-                    "and directly related text. "
-                    "(such as presentation title, paper title, affiliation, session name, research interests, academic/professional title, or any other directly related text). "
-                    "Be comprehensive and include all directly associated information."
-                    "Return only the function call."
+                    "Extract all individuals mentioned explicitly in the provided "
+                    "snippet. For each individual, include ALL relevant surrounding "
+                    "context and directly related text. Return only the function call."
                 ),
             },
             {"role": "user", "content": url_content.text_content},
         ]
 
         print(
-            f"about to query {MODEL} with {len(url_content.text_content)} characters"
+            f"about to query GPT‑4o-mini with {len(url_content.text_content)} chars"
         )
         response = client.chat.completions.create(
-            model="gpt-4.1",
+            model="gpt-4o-mini",
             messages=messages,
             tools=[
                 {
@@ -119,38 +125,81 @@ async def analyze_people_context(url_content_id: int):
             tool_choice="auto",
         )
 
-        result = response.choices[0].message.tool_calls[0].function.arguments
-        try:
-            result = (
-                response.choices[0].message.tool_calls[0].function.arguments
-            )
-            result_json = json.loads(result)
-        except (json.JSONDecodeError, IndexError, AttributeError) as e:
-            print(f"JSON parsing error: {e}")
-            db.close()
-            return
+        args = response.choices[0].message.tool_calls[0].function.arguments
+        result_json = json.loads(args)
 
         for person in result_json.get("people", []):
-            name = person.get("name").strip()
-            context = person.get("context").strip()
-            print(f"found {name} for {url_content_id}")
-            existing_person = (
-                db.query(PersonContext)
-                .filter(
-                    func.lower(PersonContext.name) == name.lower(),
-                    PersonContext.url_content_id == url_content_id,
+            name = person.get("name", "").strip()
+            context = person.get("context", "").strip()
+
+            if not name or not context:
+                continue
+
+            print(f" - found {name!r} on page {url_content_id}")
+
+            entity = (
+                db.query(Entity)
+                .filter(func.lower(Entity.name) == name.lower())
+                .first()
+            )
+            if not entity:
+                entity = Entity(name=name)
+                db.add(entity)
+                db.flush()
+
+            if (
+                not db.query(EntityPage)
+                .filter_by(
+                    entity_id=entity.entities_id,
+                    url_content_id=url_content_id,
+                )
+                .first()
+            ):
+                db.add(
+                    EntityPage(
+                        entity_id=entity.entities_id,
+                        url_content_id=url_content_id,
+                    )
+                )
+
+            context_hash = hashlib.sha256(context.encode()).hexdigest()
+
+            entity_context = (
+                db.query(EntityContext)
+                .filter_by(
+                    entity_id=entity.entities_id, context_hash=context_hash
                 )
                 .first()
             )
-
-            if existing_person:
-                if context not in existing_person.context:
-                    existing_person.context += f"\n\n{context}"
-            else:
-                new_person = PersonContext(
-                    url_content_id=url_content_id, name=name, context=context
+            if not entity_context:
+                entity_context = EntityContext(
+                    entity_id=entity.entities_id,
+                    context_text=context,
+                    context_hash=context_hash,
                 )
-                db.add(new_person)
+                db.add(entity_context)
+                db.flush()
+
+            if (
+                not db.query(EntityContextPage)
+                .filter_by(
+                    entity_context_id=entity_context.entity_contexts_id,
+                    url_content_id=url_content_id,
+                )
+                .first()
+            ):
+                db.add(
+                    EntityContextPage(
+                        entity_context_id=entity_context.entity_contexts_id,
+                        url_content_id=url_content_id,
+                    )
+                )
+
+        url_content.analyzed = True
         db.commit()
+
     except Exception:
+        db.rollback()
         LOGGER.exception(f"problem on page {url_content_id}")
+    finally:
+        db.close()
