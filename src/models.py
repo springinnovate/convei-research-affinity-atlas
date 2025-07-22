@@ -1,3 +1,5 @@
+"""SQL Alchemy models for the CONVEI research atlas."""
+
 from datetime import datetime
 
 from sqlalchemy import (
@@ -9,17 +11,36 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Table,
 )
 from sqlalchemy.orm import relationship
 from .database import Base
 
 
-class URLContent(Base):
-    """A fetched webpage or other URL addressable resource."""
+webpage_snippet_association = Table(
+    "webpage_snippet_association",
+    Base.metadata,
+    Column(
+        "snippet_id",
+        Integer,
+        ForeignKey("entity_webpage_snippet.webpage_snippet_id"),
+        primary_key=True,
+    ),
+    Column(
+        "webpage_content_id",
+        Integer,
+        ForeignKey("webpage_content.webpage_content_id"),
+        primary_key=True,
+    ),
+)
 
-    __tablename__ = "url_contents"
 
-    url_content_id = Column(Integer, primary_key=True)
+class WebpageContent(Base):
+    """A fetched webpage plus any entities/snippets extracted from it."""
+
+    __tablename__ = "webpage_content"
+
+    webpage_content_id = Column(Integer, primary_key=True)
     url = Column(String, unique=True, index=True, nullable=False)
     title = Column(String)
     html_content = Column(Text)
@@ -27,125 +48,106 @@ class URLContent(Base):
     fetched_at = Column(DateTime, default=datetime.utcnow)
     analyzed = Column(Boolean, default=False)
 
-    contexts = relationship(
-        "EntityContextPage",
-        back_populates="url_content",
+    # Entity via association table
+    related_entities = relationship(
+        "EntityWebpageContentAssociation",
+        back_populates="webpage_content",
         cascade="all, delete-orphan",
     )
-    entities = relationship(
-        "EntityPage", back_populates="page", cascade="all, delete-orphan"
+
+    # Snippets (many-to-many)
+    related_snippets = relationship(
+        "EntityWebpageSnippet",
+        secondary=webpage_snippet_association,
+        back_populates="related_webpages",
+        cascade="all, delete",
     )
 
 
 class Entity(Base):
-    """A canonical real‑world or conceptual entity (e.g., a person)."""
+    """A conceptual entity (person, organisation, place, etc.)."""
 
-    __tablename__ = "entities"
+    __tablename__ = "entity"
 
-    entities_id = Column(Integer, primary_key=True)
+    entity_id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, index=True, nullable=False)
-    type = Column(String)  # optional free‑form label (person, org, place)
 
-    contexts = relationship(
-        "EntityContext",
-        back_populates="entity",
-        cascade="all, delete-orphan",
-    )
     analyses = relationship(
-        "EntityAnalysis",
+        "EntityLLMAnalysis",
         back_populates="entity",
-        order_by="EntityAnalysis.version",
+        order_by="EntityLLMAnalysis.version",
         cascade="all, delete-orphan",
     )
-    pages = relationship(
-        "EntityPage", back_populates="entity", cascade="all, delete-orphan"
-    )
 
-
-class EntityPage(Base):
-    __tablename__ = "entity_pages"
-
-    entity_id = Column(
-        Integer, ForeignKey("entities.entities_id"), primary_key=True
-    )
-    url_content_id = Column(
-        Integer, ForeignKey("url_contents.url_content_id"), primary_key=True
-    )
-
-    # two‑way helpers (optional)
-    entity = relationship("Entity", back_populates="pages")
-    page = relationship("URLContent", back_populates="entities")
-
-
-class EntityContext(Base):
-    """
-    A unique text snippet describing an entity.
-
-    The same snippet can appear on multiple webpages; deduplicated by
-    (`entity_id`, `context_hash`).
-    """
-
-    __tablename__ = "entity_contexts"
-
-    entity_contexts_id = Column(Integer, primary_key=True)
-    entity_id = Column(
-        Integer, ForeignKey("entities.entities_id"), nullable=False
-    )
-    context_text = Column(Text, nullable=False)
-    context_hash = Column(String(64), nullable=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    entity = relationship("Entity", back_populates="contexts")
-    pages = relationship(
-        "EntityContextPage",
-        back_populates="entity_context",
+    related_webpages = relationship(
+        "EntityWebpageContentAssociation",
+        back_populates="entity",
         cascade="all, delete-orphan",
+    )
+
+    # ↔ Snippets
+    snippets = relationship(
+        "EntityWebpageSnippet",
+        back_populates="entity",
+        cascade="all, delete-orphan",
+    )
+
+
+class EntityWebpageContentAssociation(Base):
+    """Links an Entity to the WebpageContent where it was detected."""
+
+    __tablename__ = "entity_webpage_content_association"
+
+    entity_id = Column(
+        Integer, ForeignKey("entity.entity_id"), primary_key=True
+    )
+    webpage_content_id = Column(
+        Integer,
+        ForeignKey("webpage_content.webpage_content_id"),
+        primary_key=True,
+    )
+
+    entity = relationship("Entity", back_populates="related_webpages")
+    webpage_content = relationship(
+        "WebpageContent", back_populates="related_entities"
+    )
+
+
+class EntityWebpageSnippet(Base):
+    """A unique text snippet that describes (or mentions) an entity.
+
+    Deduplicated by (entity_id, snippet_hash) so the *same* snippet only
+    exists once per entity, even if it is found on many webpages.
+    """
+
+    __tablename__ = "entity_webpage_snippet"
+
+    webpage_snippet_id = Column(Integer, primary_key=True)
+    entity_id = Column(Integer, ForeignKey("entity.entity_id"), nullable=False)
+    snippet_text = Column(Text, nullable=False)
+    snippet_hash = Column(String(64), nullable=False, index=True)
+
+    entity = relationship("Entity", back_populates="snippets")
+
+    # ↔ Webpages (many-to-many)
+    related_webpages = relationship(
+        "WebpageContent",
+        secondary=webpage_snippet_association,
+        back_populates="related_snippets",
     )
 
     __table_args__ = (
-        UniqueConstraint("entity_id", "context_hash", name="uq_entity_context"),
+        UniqueConstraint("entity_id", "snippet_hash", name="uq_entity_context"),
     )
 
 
-class EntityContextPage(Base):
-    """
-    Association table linking a context snippet to each page where it occurs.
+class EntityLLMAnalysis(Base):
+    """Cached LLM summaries of an entity’s snippets."""
 
-    Composite primary key avoids duplicate links.
-    """
+    __tablename__ = "entity_llm_analysis"
 
-    __tablename__ = "entity_context_pages"
-
-    entity_context_id = Column(
-        Integer,
-        ForeignKey("entity_contexts.entity_contexts_id"),
-        primary_key=True,
-    )
-    url_content_id = Column(
-        Integer,
-        ForeignKey("url_contents.url_content_id"),
-        primary_key=True,
-    )
-
-    entity_context = relationship("EntityContext", back_populates="pages")
-    url_content = relationship("URLContent", back_populates="contexts")
-
-
-class EntityAnalysis(Base):
-    """
-    Cached LLM summary of an entity’s contexts.
-
-    * `contexts_hash` is a stable hash of the concatenated context hashes
-      used to produce the summary.
-    * `version` bumps whenever the set of contexts changes.
-    """
-
-    __tablename__ = "entity_analyses"
-
-    entity_analyses_id = Column(Integer, primary_key=True)
-    entity_id = Column(
-        Integer, ForeignKey("entities.entities_id"), nullable=False
-    )
+    entity_analysis_id = Column(Integer, primary_key=True)
+    entity_id = Column(Integer, ForeignKey("entity.entity_id"), nullable=False)
     version = Column(Integer, nullable=False)
     contexts_hash = Column(String(64), nullable=False)
     summary = Column(Text, nullable=False)

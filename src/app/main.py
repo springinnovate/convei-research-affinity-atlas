@@ -1,7 +1,8 @@
 """Entrypoint for AAA app."""
 
 import asyncio
-import uuid
+import logging
+import sys
 
 from pathlib import Path
 import uvicorn
@@ -14,9 +15,21 @@ from pydantic import BaseModel
 
 from ..parser import fetch_page_content
 from ..database import SessionLocal, init_db
-from ..models import URLContent, Entity
+from ..models import WebpageContent, Entity
 from ..crawler import crawl_domain
 from ..llm_analyzer import generate_bio
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    stream=sys.stdout,
+    format=(
+        "%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s"
+        " [%(funcName)s:%(lineno)d] %(message)s"
+    ),
+)
+LOGGER = logging.getLogger(__name__)
+
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -40,7 +53,7 @@ async def analyse_url(request: Request, url: str = Form(...)):
     result = await fetch_page_content(url)
 
     db = SessionLocal()
-    url_content = URLContent(
+    url_content = WebpageContent(
         url=url, content=result["content"], title=result["title"]
     )
     db.add(url_content)
@@ -52,13 +65,13 @@ async def analyse_url(request: Request, url: str = Form(...)):
 @app.get("/urls/")
 async def list_urls():
     db = SessionLocal()
-    urls = db.query(URLContent).all()
+    urls = db.query(WebpageContent).all()
     db.close()
 
     return {
         "urls": [
             {
-                "id": u.url_content_id,
+                "id": u.webpage_content_id,
                 "title": u.title,
                 "url": u.url,
                 "has_content": bool(u.text_content),
@@ -76,12 +89,14 @@ async def list_entities():
     return {"entities": set(p.name for p in entities)}
 
 
-@app.get("/urlcontent/{url_id}")
+@app.get("/WebpageContent/{url_id}")
 async def url_content(url_id: int):
-    print(f"fetching content for {url_id}")
+    LOGGER.debug(f"fetching content for {url_id}")
     db = SessionLocal()
     url_content = (
-        db.query(URLContent).filter(URLContent.url_content_id == url_id).first()
+        db.query(WebpageContent)
+        .filter(WebpageContent.webpage_content_id == url_id)
+        .first()
     )
     db.close()
 
@@ -89,18 +104,30 @@ async def url_content(url_id: int):
         raise HTTPException(status_code=404, detail="URL content not found")
 
     return {
-        "id": url_content.id,
+        "id": url_content.webpage_content_id,
         "url": url_content.url,
         "title": url_content.title,
         "text_content": url_content.text_content,
     }
 
 
-@app.get("/person/{person_id}/bio")
-async def get_bio(person_id: int):
-    print(f"generate bio for person {person_id}")
-    bio = await generate_bio(person_id)
-    print(f"here's the bio: {bio}")
+class PersonRequest(BaseModel):
+    person_name: str
+
+
+@app.post("/person/bio")
+async def get_bio(req: PersonRequest):
+    db = SessionLocal()
+    entity = db.query(Entity).filter(Entity.name == req.person_name).first()
+
+    if not entity:
+        raise HTTPException(
+            status_code=404, detail=f"Person '{req.person_name}' not found."
+        )
+    bio = await generate_bio(entity.entity_id)
+    LOGGER.debug(f"generate bio for person {req.person_name}")
+    bio = await generate_bio(req.person_name)
+    LOGGER.debug(f"here's the bio: {bio}")
     return bio
 
 
@@ -116,17 +143,19 @@ PROGRESS_STORE = {}
 async def start_crawl(request: CrawlRequest):
     crawl_id = request.url
     existing_progress = PROGRESS_STORE.get(crawl_id)
-    print(existing_progress)
-    if existing_progress and not existing_progress["completed"]:
+    LOGGER.debug(f"EXISTING PROGRESS: {existing_progress}")
+    if existing_progress and (
+        existing_progress["processed"] < existing_progress["discovered"]
+    ):
         return {
             "crawl_id": crawl_id,
             "status": "already in progress",
         }
 
     PROGRESS_STORE[crawl_id] = {
-        "analyzed": 0,
-        "discovered": 0,
-        "completed": False,
+        "processed": 0,
+        "fetched": 0,
+        "discovered": 1,
     }
 
     asyncio.create_task(

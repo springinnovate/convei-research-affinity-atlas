@@ -49,7 +49,7 @@
                         <div class="col-md-2">
                             <button
                                 type="submit"
-                                class="btn btn-primary w-100"
+                                class="btn btn-primary w-IN_PROGRESS_CRAWL_POLL_TIME"
                                 id="crawl-btn"
                             >
                                 <span id="crawl-btn-text">Start Crawl</span>
@@ -77,239 +77,191 @@
         </div>
 
         <script>
-            let crawlInterval = null;
-            let currentIntervalDelay = 4000;
+            const DEFAULT_CRAWL_POLL_TIME = 10000,
+                  IN_PROGRESS_CRAWL_POLL_TIME = 5000;
 
-            function startCrawlPolling(delay) {
-                if (crawlInterval) clearInterval(crawlInterval);
-                currentIntervalDelay = delay;
-                crawlInterval = setInterval(loadActiveCrawls, delay);
-            }
-            const activeCrawlIds = new Set();
-            function createOrGetRow(id) {
-                let row = document.getElementById("crawl-row-" + id);
-                if (!row) {
-                    row = document.createElement("div");
-                    row.id = "crawl-row-" + id;
-                    row.className = "alert alert-info py-1 mb-2";
-                    document
-                        .getElementById("crawl-status-list")
-                        .appendChild(row);
-                }
-                return row;
-            }
-            function updateRow(row, msg, done = false) {
-                row.textContent = msg;
-                row.className =
-                    "alert " +
-                    (done ? "alert-success" : "alert-info") +
-                    " py-1 mb-2";
+            let crawlInterval,
+                currentIntervalDelay = DEFAULT_CRAWL_POLL_TIME;
+
+            const activeCrawlIds = new Set(),
+                  knownUrls = new Set();
+
+            const getEl = id => document.getElementById(id);
+            const fetchJSON = (u,o) => fetch(u,o).then(r => r.json());
+
+            function startCrawlPolling(delay){
+              clearInterval(crawlInterval);
+              currentIntervalDelay = delay;
+              crawlInterval = setInterval(loadActiveCrawls, delay);
             }
 
-            function loadActiveCrawls() {
-                fetch("/active_crawls/")
-                    .then((r) => r.json())
-                    .then((data) => {
-                        const newCrawls = Object.keys(data).filter((id) => !activeCrawlIds.has(id));
-                        newCrawls.forEach((id) => {
-                            activeCrawlIds.add(id);
-                            pollStatus(id);
-                        });
-
-                        // Dynamically adjust interval
-                        if (newCrawls.length > 0 && currentIntervalDelay !== 100) {
-                            startCrawlPolling(100);
-                        } else if (Object.keys(data).length === 0 && currentIntervalDelay !== 4000) {
-                            startCrawlPolling(4000);
-                        }
-                    })
-                    .catch((err) => {
-                        console.error("Error checking active crawls:", err);
-                    });
+            function createOrGetRow(id){
+              let row = getEl('crawl-row-'+id);
+              if(!row){
+                row = document.createElement('div');
+                row.id = 'crawl-row-'+id;
+                row.className = 'alert alert-info py-1 mb-2';
+                getEl('crawl-status-list').appendChild(row);
+              }
+              return row;
             }
 
-            document
-                .getElementById("crawl-form")
-                .addEventListener("submit", (e) => {
-                    e.preventDefault();
-                    const url = document.getElementById("url").value;
-                    const max_pages = parseInt(
-                        document.getElementById("max-pages").value,
-                    );
-                    const btn = document.getElementById("crawl-btn");
-                    const txt = document.getElementById("crawl-btn-text");
-                    const spn = document.getElementById("crawl-btn-spinner");
-                    btn.disabled = true;
-                    startCrawlPolling(100);
-                    txt.textContent = "Crawling...";
-                    spn.classList.remove("d-none");
+            const updateRow = (row,msg,done=false)=>
+              (row.textContent = msg,
+               row.className = `alert ${done?'alert-success':'alert-info'} py-1 mb-2`);
 
-                    fetch("/start_crawl/", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ url, max_pages }),
-                    })
-                        .then((r) => r.json())
-                        .then((d) => {
-                            const id = d.crawl_id;
-                            activeCrawlIds.add(id);
-                            pollStatus(id, () => {
-                                btn.disabled = false;
-                                txt.textContent = "Start Crawl";
-                                spn.classList.add("d-none");
-                            });
-                        });
+            function loadActiveCrawls(){
+              fetchJSON('/active_crawls/').then(data=>{
+                const ids = Object.keys(data);
+                ids.filter(id=>!activeCrawlIds.has(id)).forEach(id=>{
+                  activeCrawlIds.add(id);
+                  pollStatus(id);
                 });
-
-                function pollStatus(crawlId, doneCallback) {
-                    const row = createOrGetRow(crawlId);
-                    const int = setInterval(() => {
-                        fetch(`/crawl_status`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ crawl_id: crawlId })
-                        })
-                        .then((r) => r.json())
-                        .then((s) => {
-                            if (s.error) {
-                                updateRow(row, s.error, true);
-                                clearInterval(int);
-                                if (doneCallback) doneCallback();
-                            } else {
-                                const url = new URL(crawlId);
-                                const statusText = (s.analyzed === s.discovered) && (s.discovered > 0)
-                                  ? 'complete'
-                                  : `${s.analyzed}/${s.discovered}`;
-
-                                updateRow(
-                                  row,
-                                  `[${statusText}] ${url.hostname}${url.pathname}`,
-                                  s.completed,
-                                );
-                                loadUrls();
-                                loadEntities();
-                                if (s.completed) {
-                                    clearInterval(int);
-                                    if (doneCallback) doneCallback();
-                                }
-                            }
-                        })
-                        .catch(() => {
-                            updateRow(row, "Error checking status", true);
-                            clearInterval(int);
-                            if (doneCallback) doneCallback();
-                        });
-                    }, 2000);
-                }
-
-            /* ---------------- URLs accordion ---------------- */
-            let knownUrls = new Set();
-            function loadUrls() {
-                fetch("/urls/")
-                    .then((r) => r.json())
-                    .then((data) => {
-                        const acc = document.getElementById("urlAccordion");
-                        data.urls.forEach((item) => {
-                            if (knownUrls.has(item.id)) return;
-                            knownUrls.add(item.id);
-                            const it = document.createElement("div");
-                            it.className = "accordion-item";
-                            if (item.has_content) {
-                                it.innerHTML = `
-<h2 class='accordion-header' id='heading${item.id}'>
- <button class='accordion-button collapsed' type='button' data-bs-toggle='collapse' data-bs-target='#collapse${item.id}'>
-  ${item.title ? item.title : "No title"}: (<a href='${item.url}'>${item.url}</a>)
- </button>
-</h2>
-<div id='collapse${item.id}' class='accordion-collapse collapse' data-bs-parent='#urlAccordion'>
- <div class='accordion-body'><div id='content-${item.id}'>Loading content...</div></div>
-</div>`;
-                                acc.appendChild(it);
-                                it.querySelector(
-                                    `#collapse${item.id}`,
-                                ).addEventListener(
-                                    "show.bs.collapse",
-                                    () => {
-                                        fetch(`/urlcontent/${item.id}`)
-                                            .then((r) => r.json())
-                                            .then((c) => {
-                                                document.getElementById(
-                                                    `content-${item.id}`,
-                                                ).textContent = c.text_content;
-                                            });
-                                    },
-                                    { once: true },
-                                );
-                            } else {
-                                it.innerHTML = `<div class='accordion-header'><div class='p-3'>${item.title ? item.title : "No title"}: (${item.url})</div></div>`;
-                                acc.appendChild(it);
-                            }
-                        });
-                    });
+                const currentPollTime = ids.length ? IN_PROGRESS_CRAWL_POLL_TIME
+                                           : DEFAULT_CRAWL_POLL_TIME;
+                if(currentPollTime !== currentIntervalDelay) startCrawlPolling(currentPollTime);
+              }).catch(console.error);
             }
 
-            let knownEntities = new Set();
-            function loadEntities() {
-                fetch("/entities/")
-                    .then((r) => r.json())
-                    .then((data) => {
-                        const EntitiesSelectContainer = document.getElementById("EntitiesSelectContainer");
-                        EntitiesSelectContainer.innerHTML = '';
+            getEl('crawl-form').addEventListener('submit',e=>{
+              e.preventDefault();
+              const url = getEl('url').value,
+                    max_pages = +getEl('max-pages').value,
+                    btn = getEl('crawl-btn'),
+                    txt = getEl('crawl-btn-text'),
+                    spn = getEl('crawl-btn-spinner');
 
-                        const select = document.createElement('select');
-                        select.id = 'EntitiesSelect';
-                        select.style.width = '100%';
-                        select.multiple = true;  // <-- Enable multiple selection here
+              btn.disabled = true;
+              txt.textContent = 'Crawling...';
+              spn.classList.remove('d-none');
+              startCrawlPolling(IN_PROGRESS_CRAWL_POLL_TIME);
 
-                        data.entities.forEach((name) => {
-                            const option = document.createElement('option');
-                            option.value = name;
-                            option.text = name;
-                            select.appendChild(option);
-                        });
-
-                        EntitiesSelectContainer.appendChild(select);
-
-                        $(select).select2({
-                            placeholder: 'Search and select Entities',
-                            allowClear: true,
-                            width: '100%',
-                        });
-
-                        $(select).on('change', function() {
-                            const selectedIds = $(this).val();  // now an array of ids
-                            const bioContainer = document.getElementById("personBio");
-
-                            if (selectedIds && selectedIds.length > 0) {
-                                bioContainer.innerHTML = '';  // Clear previous bios
-                                selectedIds.forEach(personId => {
-                                    fetch(`/person/${personId}/bio`)
-                                        .then((r) => r.json())
-                                        .then((b) => {
-                                            const bioDiv = document.createElement('div');
-                                            bioDiv.innerHTML = `<strong>${b.name}:</strong> ${b.bio}<br>`;
-                                            bioContainer.appendChild(bioDiv);
-                                        })
-                                        .catch(() => {
-                                            const bioDiv = document.createElement('div');
-                                            bioDiv.innerText = `Failed to generate bio for ID: ${personId}`;
-                                            bioContainer.appendChild(bioDiv);
-                                        });
-                                });
-                            } else {
-                                bioContainer.innerHTML = '';
-                            }
-                        });
-                    });
-            }
-
-            document.addEventListener("DOMContentLoaded", () => {
-                loadUrls();
-                loadActiveCrawls();
-                loadEntities();
-                startCrawlPolling(4000);
+              fetchJSON('/start_crawl/',{
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({url,max_pages})
+              }).then(({crawl_id:id})=>{
+                activeCrawlIds.add(id);
+                pollStatus(id,()=>{
+                  btn.disabled = false;
+                  txt.textContent = 'Start Crawl';
+                  spn.classList.add('d-none');
+                });
+              });
             });
-        </script>
+
+            function pollStatus(crawlId, done) {
+              const row = createOrGetRow(crawlId);
+              const int = setInterval(() => {
+                fetchJSON('/crawl_status', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ crawl_id: crawlId })
+                })
+                  .then(s => {
+                    if (s.error) {
+                      updateRow(row, s.error, true);
+                      clearInterval(int);
+                      done?.();
+                      return;
+                    }
+
+                    const url    = new URL(crawlId);
+                    const status = `Processed: ${s.processed} | Fetched: ${s.fetched} | Discovered: ${s.discovered}`;
+
+                    updateRow(row, `[${status}] ${url.hostname}${url.pathname}`, s.completed);
+                    loadUrls();
+                    loadEntities();
+
+                    if (s.completed) {
+                      clearInterval(int);
+                      done?.();
+                    }
+                  })
+                  .catch(() => {
+                    updateRow(row, 'Error checking status', true);
+                    clearInterval(int);
+                    done?.();
+                  });
+              }, IN_PROGRESS_CRAWL_POLL_TIME);
+            }
+
+            function loadUrls(){
+              fetchJSON('/urls/').then(({urls})=>{
+                const acc = getEl('urlAccordion');
+                urls.forEach(item=>{
+                  if(knownUrls.has(item.id)) return;
+                  knownUrls.add(item.id);
+
+                  const it = document.createElement('div');
+                  it.className = 'accordion-item';
+                  const title = item.title || 'No title';
+
+                  if(item.has_content){
+                    it.innerHTML = `
+            <h2 class='accordion-header' id='heading${item.id}'>
+             <button class='accordion-button collapsed' type='button' data-bs-toggle='collapse'
+                     data-bs-target='#collapse${item.id}'>${title}: (<a href='${item.url}'>${item.url}</a>)</button>
+            </h2>
+            <div id='collapse${item.id}' class='accordion-collapse collapse' data-bs-parent='#urlAccordion'>
+             <div class='accordion-body'><div id='content-${item.id}'>Loading content...</div></div>
+            </div>`;
+                    it.querySelector(`#collapse${item.id}`).addEventListener('show.bs.collapse',()=>{
+                      fetchJSON(`/urlcontent/${item.id}`).then(c=>{
+                        getEl(`content-${item.id}`).textContent = c.text_content;
+                      });
+                    },{once:true});
+                  }else{
+                    it.innerHTML = `<div class='accordion-header'>
+                                      <div class='p-3'>${title}: (${item.url})</div>
+                                    </div>`;
+                  }
+                  acc.appendChild(it);
+                });
+              });
+            }
+
+            async function loadEntities(){
+              const container = getEl('EntitiesSelectContainer');
+              container.innerHTML = `
+                <select id='EntitiesSelect' multiple style='width:100%'></select>
+                <div id='bioContainer' class='mt-4'></div>`;
+              const select = getEl('EntitiesSelect'),
+                    bioDiv = getEl('bioContainer');
+              let previous = new Set();
+
+              try{
+                const {entities} = await fetchJSON('/entities/');
+                select.innerHTML = entities.map(n=>`<option value='${n}'>${n}</option>`).join('');
+                $(select).select2({placeholder:'Search and select Entities',allowClear:true,width:'100%'})
+                  .on('change',async function(){
+                    const current = new Set($(this).val()||[]);
+                    previous.forEach(id=>!current.has(id)&&getEl(`bio-${CSS.escape(id)}`)?.remove());
+                    await Promise.all([...current].filter(id=>!previous.has(id)).map(async id=>{
+                      const d = document.createElement('div');
+                      d.id = `bio-${id}`; d.textContent = `Loading bio for ${id}...`;
+                      bioDiv.appendChild(d);
+                      try{
+                        const {name,bio} = await fetchJSON('/person/bio',{
+                          method:'POST',
+                          headers:{'Content-Type':'application/json'},
+                          body:JSON.stringify({person_name:id})
+                        });
+                        d.innerHTML = `<strong>${name}:</strong> ${bio}<br>`;
+                      }catch{}
+                    }));
+                    previous = current;
+                  });
+              }catch{
+                container.textContent = 'Failed to load entities.';
+              }
+            }
+
+            document.addEventListener('DOMContentLoaded',()=>{
+              loadUrls(); loadActiveCrawls(); loadEntities();
+              startCrawlPolling(DEFAULT_CRAWL_POLL_TIME);
+            });
+            </script>
         <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     </body>
 </html>

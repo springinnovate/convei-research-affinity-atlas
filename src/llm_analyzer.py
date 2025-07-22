@@ -3,25 +3,39 @@
 import logging
 import hashlib
 import json
+import sys
 
-from sqlalchemy import func
+from sqlalchemy import func, exists
 from openai import OpenAI
 from dotenv import load_dotenv
+from openai import AsyncOpenAI
 
 from .models import (
-    URLContent,
-    EntityContext,
+    WebpageContent,
+    EntityLLMAnalysis,
     Entity,
-    EntityPage,
-    EntityContextPage,
+    EntityWebpageSnippet,
+    EntityWebpageContentAssociation,
 )
-from .models import EntityPage
 from .database import SessionLocal
+
+
+OPENAI_CLIENT = AsyncOpenAI()
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    stream=sys.stdout,
+    format=(
+        "%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s"
+        " [%(funcName)s:%(lineno)d] %(message)s"
+    ),
+)
+LOGGER = logging.getLogger(__name__)
+
+logging.getLogger("openai").setLevel(logging.INFO)
 
 load_dotenv()
 MODEL = "gpt-4o-mini"
-
-LOGGER = logging.getLogger(__name__)
 
 EXTRACT_PEOPLE_SCHEMA = {
     "type": "object",
@@ -44,7 +58,14 @@ EXTRACT_PEOPLE_SCHEMA = {
 
 async def generate_bio(entity_id: int):
     db = SessionLocal()
-    entity = db.query(EntityContext).get(entity_id)
+    entity_context = (
+        db.query(EntityLLMAnalysis)
+        .filter(EntityLLMAnalysis.entity_id == entity_id)
+        .order_by(EntityLLMAnalysis.created_at.desc())
+        .first()
+    )
+    entity_name = entity_context.entity.name
+    context_text = entity_context.context_text
     db.close()
 
     messages = [
@@ -61,39 +82,35 @@ async def generate_bio(entity_id: int):
         {
             "role": "user",
             "content": f"""
-            Name: {entity.name}
+            Name: {entity_name}
 
             Context:
-            {entity.context}
+            {context_text}
             """,
         },
     ]
 
-    client = OpenAI()
-    print(f"about to ask this question {messages}")
-    response = client.chat.completions.create(
+    OPENAI_CLIENT = OpenAI()
+    LOGGER.debug(f"about to ask this question {messages}")
+    response = await OPENAI_CLIENT.chat.completions.create(
         model="gpt-4.1",
         messages=messages,
     )
-    print(f"got this response: {response}")
+    LOGGER.debug(f"got this response: {response}")
 
     bio_text = response.choices[0].message.content.strip()
     return {"bio": bio_text}
 
 
-async def analyze_entity_context(url_content_id):
-    print(f"analyzing people content for {url_content_id}")
+async def analyze_entity_context(webpage_content_id, progress_store, crawl_id):
+    LOGGER.debug(f"analyzing people content for {webpage_content_id}")
     db = SessionLocal()
 
     try:
-        url_content = db.query(URLContent).get(url_content_id)
+        url_content = db.query(WebpageContent).get(webpage_content_id)
         if not url_content or not url_content.text_content:
-            print("found nothing, closing")
+            LOGGER.error(f"couldn't find  WebpageContent:{webpage_content_id}")
             return
-
-        from openai import OpenAI
-
-        client = OpenAI()
 
         messages = [
             {
@@ -107,11 +124,12 @@ async def analyze_entity_context(url_content_id):
             {"role": "user", "content": url_content.text_content},
         ]
 
-        print(
-            f"about to query GPT‑4o-mini with {len(url_content.text_content)} chars"
+        OPENAI_MODEL = "gpt-4o-mini"
+        LOGGER.debug(
+            f"about to query {OPENAI_MODEL} with {len(url_content.text_content)} chars"
         )
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
+        response = await OPENAI_CLIENT.chat.completions.create(
+            model=OPENAI_MODEL,
             messages=messages,
             tools=[
                 {
@@ -130,13 +148,15 @@ async def analyze_entity_context(url_content_id):
 
         for person in result_json.get("people", []):
             name = person.get("name", "").strip()
-            context = person.get("context", "").strip()
+            snippet_text = person.get("context", "").strip()
 
-            if not name or not context:
+            if not name or not snippet_text:
                 continue
 
-            print(f" - found {name!r} on page {url_content_id}")
+            snippet_hash = hashlib.sha256(snippet_text.encode()).hexdigest()
+            LOGGER.debug(f" - found {name!r} on page {webpage_content_id}")
 
+            # grab the entity associated with the person, or make it
             entity = (
                 db.query(Entity)
                 .filter(func.lower(Entity.name) == name.lower())
@@ -147,59 +167,45 @@ async def analyze_entity_context(url_content_id):
                 db.add(entity)
                 db.flush()
 
-            if (
-                not db.query(EntityPage)
-                .filter_by(
-                    entity_id=entity.entities_id,
-                    url_content_id=url_content_id,
+            # check if the webpage snippet associated with that entity exists
+            # if not, create it
+            if not db.query(
+                exists().where(
+                    EntityWebpageSnippet.entity_id == entity.entity_id,
+                    EntityWebpageSnippet.snippet_hash == snippet_hash,
                 )
-                .first()
-            ):
+            ).scalar():
                 db.add(
-                    EntityPage(
-                        entity_id=entity.entities_id,
-                        url_content_id=url_content_id,
+                    EntityWebpageSnippet(
+                        entity_id=entity.entity_id,
+                        snippet_text=snippet_text,
+                        snippet_hash=snippet_hash,
                     )
                 )
 
-            context_hash = hashlib.sha256(context.encode()).hexdigest()
-
-            entity_context = (
-                db.query(EntityContext)
-                .filter_by(
-                    entity_id=entity.entities_id, context_hash=context_hash
+            # link the entity to the webpage where it was referenced
+            if not db.query(
+                exists().where(
+                    EntityWebpageContentAssociation.entity_id
+                    == entity.entity_id,
+                    EntityWebpageContentAssociation.webpage_content_id
+                    == webpage_content_id,
                 )
-                .first()
-            )
-            if not entity_context:
-                entity_context = EntityContext(
-                    entity_id=entity.entities_id,
-                    context_text=context,
-                    context_hash=context_hash,
-                )
-                db.add(entity_context)
-                db.flush()
-
-            if (
-                not db.query(EntityContextPage)
-                .filter_by(
-                    entity_context_id=entity_context.entity_contexts_id,
-                    url_content_id=url_content_id,
-                )
-                .first()
-            ):
+            ).scalar():
                 db.add(
-                    EntityContextPage(
-                        entity_context_id=entity_context.entity_contexts_id,
-                        url_content_id=url_content_id,
+                    EntityWebpageContentAssociation(
+                        entity_id=entity.entity_id,
+                        webpage_content_id=webpage_content_id,
                     )
                 )
 
         url_content.analyzed = True
+        LOGGER.debug(f"webpage content:{webpage_content_id} is analyzed")
         db.commit()
+        progress_store[crawl_id]["processed"] += 1
 
     except Exception:
         db.rollback()
-        LOGGER.exception(f"problem on page {url_content_id}")
+        LOGGER.exception(f"problem on page {webpage_content_id}")
     finally:
         db.close()
