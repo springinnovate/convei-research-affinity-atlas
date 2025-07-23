@@ -149,7 +149,7 @@ class EntityLLMAnalysis(Base):
     entity_analysis_id = Column(Integer, primary_key=True)
     entity_id = Column(Integer, ForeignKey("entity.entity_id"), nullable=False)
     version = Column(Integer, nullable=False)
-    contexts_hash = Column(String(64), nullable=False)
+    context_hash = Column(String(64), nullable=False)
     summary = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -157,7 +157,7 @@ class EntityLLMAnalysis(Base):
 
     __table_args__ = (
         UniqueConstraint(
-            "entity_id", "contexts_hash", name="uq_entity_analysis"
+            "entity_id", "context_hash", name="uq_entity_analysis"
         ),
         UniqueConstraint(
             "entity_id", "version", name="uq_entity_analysis_version"

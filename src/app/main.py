@@ -124,11 +124,10 @@ async def get_bio(req: PersonRequest):
         raise HTTPException(
             status_code=404, detail=f"Person '{req.person_name}' not found."
         )
-    bio = await generate_bio(entity.entity_id)
     LOGGER.debug(f"generate bio for person {req.person_name}")
-    bio = await generate_bio(req.person_name)
+    bio = await generate_bio(entity.entity_id)
     LOGGER.debug(f"here's the bio: {bio}")
-    return bio
+    return {"name": req.person_name, "bio": bio}
 
 
 class CrawlRequest(BaseModel):
@@ -144,9 +143,7 @@ async def start_crawl(request: CrawlRequest):
     crawl_id = request.url
     existing_progress = PROGRESS_STORE.get(crawl_id)
     LOGGER.debug(f"EXISTING PROGRESS: {existing_progress}")
-    if existing_progress and (
-        existing_progress["processed"] < existing_progress["discovered"]
-    ):
+    if existing_progress and not existing_progress["completed"]:
         return {
             "crawl_id": crawl_id,
             "status": "already in progress",
@@ -155,7 +152,8 @@ async def start_crawl(request: CrawlRequest):
     PROGRESS_STORE[crawl_id] = {
         "processed": 0,
         "fetched": 0,
-        "discovered": 1,
+        "discovered": 0,
+        "completed": False,
     }
 
     asyncio.create_task(

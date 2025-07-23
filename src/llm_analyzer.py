@@ -1,11 +1,12 @@
 """Module to handle all LLM analysis."""
 
+from datetime import datetime
 import logging
 import hashlib
 import json
 import sys
 
-from sqlalchemy import func, exists
+from sqlalchemy import func, exists, select
 from openai import OpenAI
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
@@ -58,15 +59,35 @@ EXTRACT_PEOPLE_SCHEMA = {
 
 async def generate_bio(entity_id: int):
     db = SessionLocal()
-    entity_context = (
+
+    entity_name = db.execute(
+        select(Entity.name).where(Entity.entity_id == entity_id)
+    ).scalar_one_or_none()
+
+    # 1) get any entityLLManalysis that was done before
+    # 2) get all the entity_webpage snippet texts for that entity
+    snippets = (
+        db.execute(
+            select(EntityWebpageSnippet.snippet_text).where(
+                EntityWebpageSnippet.entity_id == entity_id
+            )
+        )
+        .scalars()
+        .all()
+    )
+    context_text = " ".join(snippets)
+    context_hash = hashlib.sha256(context_text.encode("utf-8")).hexdigest()
+
+    cached = (
         db.query(EntityLLMAnalysis)
-        .filter(EntityLLMAnalysis.entity_id == entity_id)
-        .order_by(EntityLLMAnalysis.created_at.desc())
+        .filter_by(entity_id=entity_id, context_hash=context_hash)
         .first()
     )
-    entity_name = entity_context.entity.name
-    context_text = entity_context.context_text
-    db.close()
+    if cached:
+        LOGGER.debug(
+            f"cached result found, returning that:\n\n{cached.summary}"
+        )
+        return cached.summary
 
     messages = [
         {
@@ -90,7 +111,6 @@ async def generate_bio(entity_id: int):
         },
     ]
 
-    OPENAI_CLIENT = OpenAI()
     LOGGER.debug(f"about to ask this question {messages}")
     response = await OPENAI_CLIENT.chat.completions.create(
         model="gpt-4.1",
@@ -98,8 +118,28 @@ async def generate_bio(entity_id: int):
     )
     LOGGER.debug(f"got this response: {response}")
 
-    bio_text = response.choices[0].message.content.strip()
-    return {"bio": bio_text}
+    summary = response.choices[0].message.content.strip()
+
+    # get the next llm analysis version
+    result = db.execute(
+        select(func.coalesce(func.max(EntityLLMAnalysis.version), 0)).where(
+            EntityLLMAnalysis.entity_id == entity_id
+        )
+    )
+    next_version: int = result.scalar_one() + 1
+
+    analysis = EntityLLMAnalysis(
+        entity_id=entity_id,
+        version=next_version,
+        context_hash=context_hash,
+        summary=summary,
+        created_at=datetime.utcnow(),
+    )
+    db.add(analysis)
+    db.commit()
+    db.close()
+
+    return summary
 
 
 async def analyze_entity_context(webpage_content_id, progress_store, crawl_id):
@@ -107,9 +147,12 @@ async def analyze_entity_context(webpage_content_id, progress_store, crawl_id):
     db = SessionLocal()
 
     try:
+        # TODO: make sure there isn't a race condition here where two queries might try to process the same page
         url_content = db.query(WebpageContent).get(webpage_content_id)
         if not url_content or not url_content.text_content:
-            LOGGER.error(f"couldn't find  WebpageContent:{webpage_content_id}")
+            LOGGER.error(
+                f"couldn't find  WebpageContent:{webpage_content_id}, this was the result {url_content}"
+            )
             return
 
         messages = [

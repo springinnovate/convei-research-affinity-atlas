@@ -67,7 +67,7 @@
                 </div>
             </div>
 
-            <h4 class="mt-5 mb-3">Entities Found</h4>
+            <h4 class="mt-5 mb-3">Search For People</h4>
             <div id="EntitiesSelectContainer">
                 <!-- The value select element will be inserted here -->
             </div>
@@ -85,6 +85,16 @@
 
             const activeCrawlIds = new Set(),
                   knownUrls = new Set();
+
+            function resetCrawlBtn() {
+              const btn = getEl('crawl-btn'),
+                    txt = getEl('crawl-btn-text'),
+                    spn = getEl('crawl-btn-spinner');
+
+              btn.disabled = false;
+              txt.textContent = 'Start Crawl';
+              spn.classList.add('d-none');
+            }
 
             const getEl = id => document.getElementById(id);
             const fetchJSON = (u,o) => fetch(u,o).then(r => r.json());
@@ -115,6 +125,8 @@
                 const ids = Object.keys(data);
                 ids.filter(id=>!activeCrawlIds.has(id)).forEach(id=>{
                   activeCrawlIds.add(id);
+                });
+                ids.forEach(id=>{
                   pollStatus(id);
                 });
                 const currentPollTime = ids.length ? IN_PROGRESS_CRAWL_POLL_TIME
@@ -142,48 +154,43 @@
                 body:JSON.stringify({url,max_pages})
               }).then(({crawl_id:id})=>{
                 activeCrawlIds.add(id);
-                pollStatus(id,()=>{
-                  btn.disabled = false;
-                  txt.textContent = 'Start Crawl';
-                  spn.classList.add('d-none');
-                });
+                pollStatus(id);
               });
             });
 
-            function pollStatus(crawlId, done) {
+            function pollStatus(crawlId) {
               const row = createOrGetRow(crawlId);
-              const int = setInterval(() => {
-                fetchJSON('/crawl_status', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ crawl_id: crawlId })
+              fetchJSON('/crawl_status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ crawl_id: crawlId })
+              })
+                .then(s => {
+                  if (s.error) {
+                    updateRow(row, s.error, true);
+                    return;
+                  }
+
+                  const url    = new URL(crawlId);
+                  const prefix = s.completed ? 'Completed analysis' : 'In progress';
+                  const status = `${prefix}: Processed: ${s.processed} | Fetched: ${s.fetched} | Discovered: ${s.discovered}`;
+                  const alertClass = s.completed ? 'alert-success' : 'alert-warning';
+
+                  row.className = `alert ${alertClass} py-1 mb-2`;
+                  updateRow(row, `[${status}] ${url.hostname}${url.pathname}`, s.completed);
+                  loadUrls();
+                  loadEntities();
+
+                  if (s.completed) {
+                    activeCrawlIds.delete(crawlId);   // mark done
+                    if (activeCrawlIds.size === 0) resetCrawlBtn();
+                  }
                 })
-                  .then(s => {
-                    if (s.error) {
-                      updateRow(row, s.error, true);
-                      clearInterval(int);
-                      done?.();
-                      return;
-                    }
-
-                    const url    = new URL(crawlId);
-                    const status = `Processed: ${s.processed} | Fetched: ${s.fetched} | Discovered: ${s.discovered}`;
-
-                    updateRow(row, `[${status}] ${url.hostname}${url.pathname}`, s.completed);
-                    loadUrls();
-                    loadEntities();
-
-                    if (s.completed) {
-                      clearInterval(int);
-                      done?.();
-                    }
-                  })
-                  .catch(() => {
-                    updateRow(row, 'Error checking status', true);
-                    clearInterval(int);
-                    done?.();
-                  });
-              }, IN_PROGRESS_CRAWL_POLL_TIME);
+                .catch(() => {
+                  updateRow(row, 'Error checking status', true);
+                  activeCrawlIds.delete(crawlId);
+                  if (activeCrawlIds.size === 0) resetCrawlBtn();
+                });
             }
 
             function loadUrls(){
@@ -221,44 +228,42 @@
               });
             }
 
-            async function loadEntities(){
-              const container = getEl('EntitiesSelectContainer');
-              container.innerHTML = `
-                <select id='EntitiesSelect' multiple style='width:100%'></select>
-                <div id='bioContainer' class='mt-4'></div>`;
-              const select = getEl('EntitiesSelect'),
-                    bioDiv = getEl('bioContainer');
-              let previous = new Set();
+            async function loadEntities() {
+              const c = getEl('EntitiesSelectContainer');
+              if (!getEl('EntitiesSelect')) {
+                c.innerHTML = `<select id='EntitiesSelect' multiple style='width:100%'></select><div id='bioContainer' class='mt-4'></div>`;
+                const s = $('#EntitiesSelect').select2({ placeholder: 'Search and select Entities', allowClear: true, width: '100%' });
+                let prev = new Set();
+                s.on('change', async () => {
+                  const cur = new Set(s.val() || []);
+                  prev.forEach(id => !cur.has(id) && getEl(`bio-${CSS.escape(id)}`)?.remove());
+                  await Promise.all([...cur].filter(id => !prev.has(id)).map(async id => {
+                    const div = Object.assign(document.createElement('div'), { id: `bio-${id}`, textContent: `Loading bio for ${id}...` });
+                    getEl('bioContainer').appendChild(div);
+                    try {
+                      const { name, bio } = await fetchJSON('/person/bio', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ person_name: id }) });
+                      div.innerHTML = `<strong>${name}:</strong> ${bio}<br>`;
+                    } catch {}
+                  }));
+                  prev = cur;
+                });
+              }
 
-              try{
-                const {entities} = await fetchJSON('/entities/');
-                select.innerHTML = entities.map(n=>`<option value='${n}'>${n}</option>`).join('');
-                $(select).select2({placeholder:'Search and select Entities',allowClear:true,width:'100%'})
-                  .on('change',async function(){
-                    const current = new Set($(this).val()||[]);
-                    previous.forEach(id=>!current.has(id)&&getEl(`bio-${CSS.escape(id)}`)?.remove());
-                    await Promise.all([...current].filter(id=>!previous.has(id)).map(async id=>{
-                      const d = document.createElement('div');
-                      d.id = `bio-${id}`; d.textContent = `Loading bio for ${id}...`;
-                      bioDiv.appendChild(d);
-                      try{
-                        const {name,bio} = await fetchJSON('/person/bio',{
-                          method:'POST',
-                          headers:{'Content-Type':'application/json'},
-                          body:JSON.stringify({person_name:id})
-                        });
-                        d.innerHTML = `<strong>${name}:</strong> ${bio}<br>`;
-                      }catch{}
-                    }));
-                    previous = current;
-                  });
-              }catch{
-                container.textContent = 'Failed to load entities.';
+              try {
+                const { entities } = await fetchJSON('/entities/');
+                const sel = getEl('EntitiesSelect');
+                const existing = new Set([...sel.options].map(o => o.value));
+                entities.filter(e => !existing.has(e)).forEach(e => sel.add(new Option(e, e)));
+                $(sel).trigger('change.select2');
+              } catch {
+                c.textContent = 'Failed to load entities.';
               }
             }
 
             document.addEventListener('DOMContentLoaded',()=>{
-              loadUrls(); loadActiveCrawls(); loadEntities();
+              loadUrls();
+              loadActiveCrawls();
+              loadEntities();
               startCrawlPolling(DEFAULT_CRAWL_POLL_TIME);
             });
             </script>
