@@ -85,7 +85,7 @@ LOGGER = logging.getLogger(__name__)
 logging.getLogger("openai").setLevel(logging.INFO)
 
 load_dotenv()
-MODEL = "gpt-4o-mini"
+MODEL = "gpt-4o"
 
 EXTRACT_PEOPLE_SCHEMA = {
     "type": "object",
@@ -236,7 +236,7 @@ async def analyze_entity_context(webpage_content_id, progress_store, crawl_id):
             {"role": "user", "content": url_content.text_content},
         ]
 
-        OPENAI_MODEL = "gpt-4o-mini"
+        OPENAI_MODEL = "gpt-4o"
         LOGGER.debug(
             f"about to query {OPENAI_MODEL} with {len(url_content.text_content)} chars"
         )
@@ -357,7 +357,7 @@ async def llm_match_people(
     )
 
     response = await OPENAI_CLIENT.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
         tools=[
             {
