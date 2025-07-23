@@ -23,6 +23,55 @@ from .database import SessionLocal
 
 OPENAI_CLIENT = AsyncOpenAI()
 
+MATCH_PEOPLE_PROMPT_TEMPLATE = """
+You are an assistant that matches researchers to a user's interests.
+
+Use ONLY the data below.
+
+### User_Interest
+{user_interest_text}
+
+### Candidate_Bios  (name -> biography)
+{bios_json}
+
+Task:
+• Read the user's interests and every candidate bio.
+• Choose up to five people whose bio best aligns with the user's interests.
+• For each selected person provide:
+    – name
+    – relevance_score (1‑100, higher = better match)
+    – rationale (one concise sentence)
+    – bio_quote (<= 20 words copied verbatim from the bio)
+
+Do not invent new individuals or facts.
+Return your answer by calling the **match_people** function tool.
+"""
+
+MATCH_PEOPLE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "matches": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "relevance_score": {"type": "integer"},
+                    "rationale": {"type": "string"},
+                    "bio_quote": {"type": "string"},
+                },
+                "required": [
+                    "name",
+                    "relevance_score",
+                    "rationale",
+                    "bio_quote",
+                ],
+            },
+        }
+    },
+    "required": ["matches"],
+}
+
 logging.basicConfig(
     level=logging.DEBUG,
     stream=sys.stdout,
@@ -57,19 +106,14 @@ EXTRACT_PEOPLE_SCHEMA = {
 }
 
 
-async def generate_bio(entity_id: int):
+def get_all_snippets(entity_id: int):
     db = SessionLocal()
-
-    entity_name = db.execute(
-        select(Entity.name).where(Entity.entity_id == entity_id)
-    ).scalar_one_or_none()
-
-    # 1) get any entityLLManalysis that was done before
-    # 2) get all the entity_webpage snippet texts for that entity
     snippets = (
-        db.execute(
-            select(EntityWebpageSnippet.snippet_text).where(
-                EntityWebpageSnippet.entity_id == entity_id
+        (
+            db.execute(
+                select(EntityWebpageSnippet.snippet_text).where(
+                    EntityWebpageSnippet.entity_id == entity_id
+                )
             )
         )
         .scalars()
@@ -77,6 +121,28 @@ async def generate_bio(entity_id: int):
     )
     context_text = " ".join(snippets)
     context_hash = hashlib.sha256(context_text.encode("utf-8")).hexdigest()
+    return context_text, context_hash
+
+
+async def generate_bio(entity_id: int):
+    db = SessionLocal()
+
+    # 1) get any entityLLManalysis that was done before
+    # 2) get all the entity_webpage snippet texts for that entity
+    context_text, context_hash = get_all_snippets(entity_id)
+
+    existing = db.execute(
+        select(EntityLLMAnalysis.summary).where(
+            EntityLLMAnalysis.entity_id == entity_id,
+            EntityLLMAnalysis.context_hash == context_hash,
+        )
+    )
+    cached = existing.scalar_one_or_none()
+    if cached is not None:
+        return cached
+
+    if not context_text:
+        return "No relevant context found."
 
     cached = (
         db.query(EntityLLMAnalysis)
@@ -89,6 +155,9 @@ async def generate_bio(entity_id: int):
         )
         return cached.summary
 
+    entity_name = db.execute(
+        select(Entity.name).where(Entity.entity_id == entity_id)
+    ).scalar_one_or_none()
     messages = [
         {
             "role": "system",
@@ -252,3 +321,58 @@ async def analyze_entity_context(webpage_content_id, progress_store, crawl_id):
         LOGGER.exception(f"problem on page {webpage_content_id}")
     finally:
         db.close()
+
+
+async def llm_match_people(
+    user_interest_text,
+):
+
+    latest = (
+        select(
+            EntityLLMAnalysis.entity_id,
+            func.max(EntityLLMAnalysis.version).label("max_version"),
+        )
+        .group_by(EntityLLMAnalysis.entity_id)
+        .subquery()
+    )
+
+    stmt = (
+        select(Entity.name, EntityLLMAnalysis.summary)
+        .join(
+            EntityLLMAnalysis,
+            (EntityLLMAnalysis.entity_id == Entity.entity_id)
+            & (EntityLLMAnalysis.version == latest.c.max_version),
+        )
+        .join(latest, latest.c.entity_id == Entity.entity_id)
+    )
+
+    # fetch rows -> dict
+    db = SessionLocal()
+    rows = db.execute(stmt).all()
+    name_to_bio_dict = {name: summary for name, summary in rows}
+
+    prompt = MATCH_PEOPLE_PROMPT_TEMPLATE.format(
+        user_interest_text=user_interest_text,
+        bios_json=json.dumps(name_to_bio_dict, indent=2),
+    )
+
+    response = await OPENAI_CLIENT.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "match_people",
+                    "description": "Return the top people matching the user's research interests.",
+                    "parameters": MATCH_PEOPLE_SCHEMA,
+                },
+            }
+        ],
+        tool_choice="auto",
+    )
+    LOGGER.debug(response)
+    call = response.choices[0].message.tool_calls[0]
+    arguments = json.loads(call.function.arguments)
+    matches = arguments["matches"]
+    return matches

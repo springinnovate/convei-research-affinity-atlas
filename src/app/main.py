@@ -1,8 +1,10 @@
 """Entrypoint for AAA app."""
 
+from datetime import datetime
 import asyncio
 import logging
 import sys
+import hashlib
 
 from pathlib import Path
 import uvicorn
@@ -12,12 +14,18 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi import HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select, func
 
 from ..parser import fetch_page_content
 from ..database import SessionLocal, init_db
-from ..models import WebpageContent, Entity
+from ..models import (
+    WebpageContent,
+    Entity,
+    EntityWebpageSnippet,
+    EntityLLMAnalysis,
+)
 from ..crawler import crawl_domain
-from ..llm_analyzer import generate_bio
+from ..llm_analyzer import generate_bio, get_all_snippets, llm_match_people
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -176,6 +184,86 @@ async def crawl_status(request: Request):
 @app.get("/active_crawls/")
 async def active_crawls():
     return PROGRESS_STORE
+
+
+@app.post("/match_people")
+async def match_people(request: Request):
+    data = await request.json()
+    user_interest_text = data.get("user_interest_text")
+    result = await llm_match_people(user_interest_text)
+    return result
+
+
+@app.get("/generate_all_bios")
+async def refresh_all_entity_analyses():
+    """
+    Ensure every entity has an up‑to‑date LLM analysis for its current snippet set.
+    """
+    # 1) fetch all entities
+    db = SessionLocal()
+    entities = (db.execute(select(Entity))).scalars().all()
+
+    for entity in entities:
+        # hash the entity's snippets
+        LOGGER.debug(f"refreshing {entity.name} summary")
+        snippets = (
+            (
+                db.execute(
+                    select(EntityWebpageSnippet.snippet_text).where(
+                        EntityWebpageSnippet.entity_id == entity.entity_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        if not snippets:  # skip entities with no snippets yet
+            continue
+
+        context_text, context_hash = get_all_snippets(entity.entity_id)
+
+        # 3) does an analysis for this hash already exist?
+        exists_stmt = (
+            select(1)
+            .where(
+                EntityLLMAnalysis.entity_id == entity.entity_id,
+                EntityLLMAnalysis.context_hash == context_hash,
+            )
+            .limit(1)
+        )
+        already_cached = (db.execute(exists_stmt)).scalar_one_or_none()
+        if already_cached:
+            continue
+
+        # 4) need a new summary → call your LLM helper
+        summary = await generate_bio(
+            entity.entity_id
+        )  # or pass `context` if needed
+
+        # 5) determine next version number
+        next_version = (
+            db.execute(
+                select(
+                    func.coalesce(func.max(EntityLLMAnalysis.version), 0)
+                ).where(EntityLLMAnalysis.entity_id == entity.entity_id)
+            )
+        ).scalar_one() + 1
+
+        # 6) insert the new analysis row
+        db.add(
+            EntityLLMAnalysis(
+                entity_id=entity.entity_id,
+                version=next_version,
+                context_hash=context_hash,
+                summary=summary,
+                created_at=datetime.utcnow(),
+            )
+        )
+
+    db.commit()
+    db.close()
+    LOGGER.debug("ALL DONE refreshing summary")
 
 
 if __name__ == "__main__":
