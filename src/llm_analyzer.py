@@ -175,7 +175,7 @@ async def generate_bio(entity_id: int):
                 EntityLLMAnalysis.context_hash == context_hash,
             )
         ).scalar_one_or_none()
-        summary = cached.scalar_one_or_none()
+        summary = cached
         if cached is not None and summary:
             return cached
 
