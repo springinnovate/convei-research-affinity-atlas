@@ -120,6 +120,8 @@ async def safe_openai_completion(messages, tools=None, tool_choice=None):
                 model=OPENAI_MODEL,
                 messages=messages,
                 timeout=30,
+                tools=tools,
+                tool_choice=tool_choice,
             )
         except Exception as e:
             LOGGER.warning(f"Encountered this error during openaiapi call: {e!s}")
