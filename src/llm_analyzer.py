@@ -1,6 +1,9 @@
 """Module to handle all LLM analysis."""
 
+from contextlib import asynccontextmanager
 from datetime import datetime
+import collections
+import asyncio
 import logging
 import hashlib
 import json
@@ -9,7 +12,7 @@ import sys
 from sqlalchemy import func, exists, select
 from openai import OpenAI
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, APITimeoutError
 
 from .models import (
     WebpageContent,
@@ -20,8 +23,6 @@ from .models import (
 )
 from .database import SessionLocal
 
-
-OPENAI_CLIENT = AsyncOpenAI()
 
 MATCH_PEOPLE_PROMPT_TEMPLATE = """
 You are an assistant that matches researchers to a user's interests.
@@ -36,7 +37,7 @@ Use ONLY the data below.
 
 Task:
 • Read the user's interests and every candidate bio.
-• Choose up to five people whose bio best aligns with the user's interests.
+• Choose at least 10 people aswhose bio aligns with the user's interests.
 • For each selected person provide:
     – name
     – relevance_score (1‑100, higher = better match)
@@ -85,7 +86,6 @@ LOGGER = logging.getLogger(__name__)
 logging.getLogger("openai").setLevel(logging.INFO)
 
 load_dotenv()
-MODEL = "gpt-4o-mini"
 
 EXTRACT_PEOPLE_SCHEMA = {
     "type": "object",
@@ -104,6 +104,39 @@ EXTRACT_PEOPLE_SCHEMA = {
     },
     "required": ["people"],
 }
+
+OPENAI_CLIENT = AsyncOpenAI(timeout=30)
+
+OPENAI_MODEL = "gpt-4o"
+
+
+async def safe_openai_completion(messages, tools=None, tool_choice=None):
+    attempt = 0
+    max_attempts = 3
+    while True:
+        try:
+            attempt += 1
+            return await OPENAI_CLIENT.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=messages,
+                timeout=30,
+            )
+        except Exception as e:
+            LOGGER.warning(f"Encountered this error during openaiapi call: {e!s}")
+            if attempt == max_attempts:
+                return f"***OpenAI error***: {e!s}"
+
+
+# global lock registry  {(entity_id, ctx_hash): asyncio.Lock()}
+_LOCKS = collections.defaultdict(asyncio.Lock)
+
+
+@asynccontextmanager
+async def keyed_lock(entity_id: int, ctx_hash: str):
+    key = (entity_id, ctx_hash)
+    lock = _LOCKS[key]
+    async with lock:
+        yield
 
 
 def get_all_snippets(entity_id: int):
@@ -130,83 +163,78 @@ async def generate_bio(entity_id: int):
     # 1) get any entityLLManalysis that was done before
     # 2) get all the entity_webpage snippet texts for that entity
     context_text, context_hash = get_all_snippets(entity_id)
-
-    existing = db.execute(
-        select(EntityLLMAnalysis.summary).where(
-            EntityLLMAnalysis.entity_id == entity_id,
-            EntityLLMAnalysis.context_hash == context_hash,
-        )
-    )
-    cached = existing.scalar_one_or_none()
-    if cached is not None:
-        return cached
-
     if not context_text:
         return "No relevant context found."
 
-    cached = (
-        db.query(EntityLLMAnalysis)
-        .filter_by(entity_id=entity_id, context_hash=context_hash)
-        .first()
-    )
-    if cached:
-        LOGGER.debug(
-            f"cached result found, returning that:\n\n{cached.summary}"
+    async with keyed_lock(entity_id, context_hash):
+        cached = db.execute(
+            select(EntityLLMAnalysis.summary).where(
+                EntityLLMAnalysis.entity_id == entity_id,
+                EntityLLMAnalysis.context_hash == context_hash,
+            )
+        ).scalar_one_or_none()
+        summary = cached.scalar_one_or_none()
+        if cached is not None and summary:
+            return cached
+
+        cached = (
+            db.query(EntityLLMAnalysis)
+            .filter_by(entity_id=entity_id, context_hash=context_hash)
+            .first()
         )
-        return cached.summary
+        if cached:
+            LOGGER.debug(f"cached result found, returning that:\n\n{cached.summary}")
+            return cached.summary
 
-    entity_name = db.execute(
-        select(Entity.name).where(Entity.entity_id == entity_id)
-    ).scalar_one_or_none()
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "Generate a concise, professional biography based solely on the provided context. "
-                "Clearly summarize the individual's research interests, professional background, affiliations, "
-                "and relevant achievements. "
-                "If information is incomplete or unclear, you may state assumptions explicitly as assumptions. "
-                "Do not invent details not supported by the provided context."
-            ),
-        },
-        {
-            "role": "user",
-            "content": f"""
-            Name: {entity_name}
+        entity_name = db.execute(
+            select(Entity.name).where(Entity.entity_id == entity_id)
+        ).scalar_one_or_none()
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "Generate a concise, professional biography based solely on the provided context. "
+                    "Clearly summarize the individual's research interests, professional background, affiliations, "
+                    "and relevant achievements. "
+                    "If information is incomplete or unclear, you may state assumptions explicitly as assumptions. "
+                    "Do not invent details not supported by the provided context."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"""
+                Name: {entity_name}
 
-            Context:
-            {context_text}
-            """,
-        },
-    ]
+                Context:
+                {context_text}
+                """,
+            },
+        ]
 
-    LOGGER.debug(f"about to ask this question {messages}")
-    response = await OPENAI_CLIENT.chat.completions.create(
-        model="gpt-4.1",
-        messages=messages,
-    )
-    LOGGER.debug(f"got this response: {response}")
+        LOGGER.debug(f"about to ask this question {messages}")
+        response = await safe_openai_completion(messages)
+        LOGGER.debug(f"got this response: {response}")
 
-    summary = response.choices[0].message.content.strip()
+        summary = response.choices[0].message.content.strip()
 
-    # get the next llm analysis version
-    result = db.execute(
-        select(func.coalesce(func.max(EntityLLMAnalysis.version), 0)).where(
-            EntityLLMAnalysis.entity_id == entity_id
+        # get the next llm analysis version
+        result = db.execute(
+            select(func.coalesce(func.max(EntityLLMAnalysis.version), 0)).where(
+                EntityLLMAnalysis.entity_id == entity_id
+            )
         )
-    )
-    next_version: int = result.scalar_one() + 1
+        next_version: int = result.scalar_one() + 1
 
-    analysis = EntityLLMAnalysis(
-        entity_id=entity_id,
-        version=next_version,
-        context_hash=context_hash,
-        summary=summary,
-        created_at=datetime.utcnow(),
-    )
-    db.add(analysis)
-    db.commit()
-    db.close()
+        analysis = EntityLLMAnalysis(
+            entity_id=entity_id,
+            version=next_version,
+            context_hash=context_hash,
+            summary=summary,
+            created_at=datetime.utcnow(),
+        )
+        db.add(analysis)
+        db.commit()
+        db.close()
 
     return summary
 
@@ -236,13 +264,12 @@ async def analyze_entity_context(webpage_content_id, progress_store, crawl_id):
             {"role": "user", "content": url_content.text_content},
         ]
 
-        OPENAI_MODEL = "gpt-4o-mini"
+        OPENAI_MODEL = "gpt-4o"
         LOGGER.debug(
             f"about to query {OPENAI_MODEL} with {len(url_content.text_content)} chars"
         )
-        response = await OPENAI_CLIENT.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=messages,
+        response = await safe_openai_completion(
+            messages,
             tools=[
                 {
                     "type": "function",
@@ -270,9 +297,7 @@ async def analyze_entity_context(webpage_content_id, progress_store, crawl_id):
 
             # grab the entity associated with the person, or make it
             entity = (
-                db.query(Entity)
-                .filter(func.lower(Entity.name) == name.lower())
-                .first()
+                db.query(Entity).filter(func.lower(Entity.name) == name.lower()).first()
             )
             if not entity:
                 entity = Entity(name=name)
@@ -298,8 +323,7 @@ async def analyze_entity_context(webpage_content_id, progress_store, crawl_id):
             # link the entity to the webpage where it was referenced
             if not db.query(
                 exists().where(
-                    EntityWebpageContentAssociation.entity_id
-                    == entity.entity_id,
+                    EntityWebpageContentAssociation.entity_id == entity.entity_id,
                     EntityWebpageContentAssociation.webpage_content_id
                     == webpage_content_id,
                 )
@@ -326,7 +350,6 @@ async def analyze_entity_context(webpage_content_id, progress_store, crawl_id):
 async def llm_match_people(
     user_interest_text,
 ):
-
     latest = (
         select(
             EntityLLMAnalysis.entity_id,
@@ -356,8 +379,7 @@ async def llm_match_people(
         bios_json=json.dumps(name_to_bio_dict, indent=2),
     )
 
-    response = await OPENAI_CLIENT.chat.completions.create(
-        model="gpt-4o-mini",
+    response = await safe_openai_completion(
         messages=[{"role": "user", "content": prompt}],
         tools=[
             {
