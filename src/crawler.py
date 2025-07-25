@@ -83,7 +83,9 @@ async def safe_fetch_url(url, page, db):
             result = await fetch_page(url, page, db)
             future.set_result(result)
         except Exception as e:
-            future.set_exception(e)
+            LOGGER.exception(f"Error fetching URL {url}: {e}")
+            # Set result to None to avoid propagating the exception
+            future.set_result(None)
         finally:
             async with CURRENTLY_PROCESSING_LOCK:
                 del CURRENTLY_PROCESSING[url]
@@ -115,6 +117,10 @@ async def crawl_domain(start_url, max_pages, progress_store, crawl_id):
                 processed_links.add(url)
                 LOGGER.debug(f"about to crawl {url}")
                 webpage_record = await safe_fetch_url(url, page, db)
+
+                if webpage_record is None:
+                    LOGGER.warning(f"Oops, couldn't fetch {url}. Skipping.")
+                    continue
 
                 if not webpage_record.analyzed:
                     progress_store[crawl_id]["fetched"] += 1
