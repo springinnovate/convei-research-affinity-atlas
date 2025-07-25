@@ -1,10 +1,11 @@
 """Entrypoint for AAA app."""
 
 from datetime import datetime
+from urllib.parse import urlparse
+from collections import Counter
 import asyncio
 import logging
 import sys
-import hashlib
 
 from pathlib import Path
 import uvicorn
@@ -73,18 +74,20 @@ async def analyse_url(request: Request, url: str = Form(...)):
 @app.get("/urls/")
 async def list_urls():
     db = SessionLocal()
-    urls = db.query(WebpageContent).all()
+    urls = db.query(WebpageContent.url).all()
     db.close()
 
+    # Extract the top-level domains
+    top_domains = [
+        f"{urlparse(u.url).scheme}://{urlparse(u.url).netloc}" for u in urls
+    ]
+
+    domain_counts = Counter(top_domains)
+
     return {
-        "urls": [
-            {
-                "id": u.webpage_content_id,
-                "title": u.title,
-                "url": u.url,
-                "has_content": bool(u.text_content),
-            }
-            for u in urls
+        "top_level_domains": [
+            {"domain": domain, "url_count": count}
+            for domain, count in domain_counts.items()
         ]
     }
 

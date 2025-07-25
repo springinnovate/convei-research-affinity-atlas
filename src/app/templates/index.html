@@ -87,8 +87,8 @@
                 <!-- The value select element will be inserted here -->
             </div>
 
-            <h4 class="mb-3">Crawled Pages</h4>
-            <div class="accordion" id="urlAccordion"></div>
+            <h4 class="mb-3">Indexed Pages</h4>
+            <div id="urlListContainer" class="mt-4"></div>
         </div>
 
         <script>
@@ -209,36 +209,15 @@
             }
 
             function loadUrls(){
-              fetchJSON('/urls/').then(({urls})=>{
-                const acc = getEl('urlAccordion');
-                urls.forEach(item=>{
-                  if(knownUrls.has(item.id)) return;
-                  knownUrls.add(item.id);
+              fetchJSON('/urls/').then(({top_level_domains}) => {
+                const container = getEl('urlListContainer');
+                container.innerHTML = ''; // clear old content
 
-                  const it = document.createElement('div');
-                  it.className = 'accordion-item';
-                  const title = item.title || 'No title';
-
-                  if(item.has_content){
-                    it.innerHTML = `
-            <h2 class='accordion-header' id='heading${item.id}'>
-             <button class='accordion-button collapsed' type='button' data-bs-toggle='collapse'
-                     data-bs-target='#collapse${item.id}'>${title}: (<a href='${item.url}'>${item.url}</a>)</button>
-            </h2>
-            <div id='collapse${item.id}' class='accordion-collapse collapse' data-bs-parent='#urlAccordion'>
-             <div class='accordion-body'><div id='content-${item.id}'>Loading content...</div></div>
-            </div>`;
-                    it.querySelector(`#collapse${item.id}`).addEventListener('show.bs.collapse',()=>{
-                      fetchJSON(`/urlcontent/${item.id}`).then(c=>{
-                        getEl(`content-${item.id}`).textContent = c.text_content;
-                      });
-                    },{once:true});
-                  }else{
-                    it.innerHTML = `<div class='accordion-header'>
-                                      <div class='p-3'>${title}: (${item.url})</div>
-                                    </div>`;
-                  }
-                  acc.appendChild(it);
+                top_level_domains.forEach(({domain, url_count}) => {
+                  const div = document.createElement('div');
+                  div.className = 'alert alert-secondary py-1 mb-1';
+                  div.textContent = `${domain} → ${url_count} URL${url_count !== 1 ? 's' : ''}`;
+                  container.appendChild(div);
                 });
               });
             }
@@ -275,19 +254,22 @@
               }
             }
 
-              function showMatches(matches) {
-                const out = getEl('MatchResults');
-                if (!matches.length) {
-                  out.textContent = 'No relevant people found.';
-                  return;
-                }
-                out.innerHTML = matches.map(m =>
-                  `<div class="alert alert-info py-1 mb-2">
-                     <strong>${m.name}</strong> — score ${m.relevance_score}<br>
-                     <em>${m.rationale}</em><br>
-                     <small>${m.bio_quote}</small>
-                   </div>`).join('');
+            function showMatches(matches) {
+              const out = getEl('MatchResults');
+              if (!matches.length) {
+                out.textContent = 'No relevant people found.';
+                return;
               }
+              out.innerHTML = matches.map(m => {
+                const urlList = m.urls ? `<ul>${m.urls.map(url => `<li><a href="${url}" target="_blank">${url}</a></li>`).join('')}</ul>` : '';
+                return `<div class="alert alert-info py-1 mb-2">
+                          <strong>${m.name}</strong> — score ${m.relevance_score}<br>
+                          <em>${m.rationale}</em><br>
+                          <small>${m.bio_quote}</small>
+                          ${urlList}
+                        </div>`;
+              }).join('');
+            }
 
               getEl('MatchPeopleBtn').addEventListener('click', async () => {
                 const btn  = getEl('MatchPeopleBtn'),

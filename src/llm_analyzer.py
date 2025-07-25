@@ -380,7 +380,7 @@ async def llm_match_people(
     )
 
     stmt = (
-        select(Entity.name, EntityLLMAnalysis.summary)
+        select(Entity.entity_id, Entity.name, EntityLLMAnalysis.summary)
         .join(
             EntityLLMAnalysis,
             (EntityLLMAnalysis.entity_id == Entity.entity_id)
@@ -392,7 +392,8 @@ async def llm_match_people(
     # fetch rows -> dict
     db = SessionLocal()
     rows = db.execute(stmt).all()
-    name_to_bio_dict = {name: summary for name, summary in rows}
+    entity_id_to_name = {entity_id: name for entity_id, name, _ in rows}
+    name_to_bio_dict = {name: summary for _, name, summary in rows}
 
     prompt = MATCH_PEOPLE_PROMPT_TEMPLATE.format(
         user_interest_text=user_interest_text,
@@ -414,7 +415,48 @@ async def llm_match_people(
         tool_choice="auto",
     )
     LOGGER.debug(response)
-    call = response.choices[0].message.tool_calls[0]
-    arguments = json.loads(call.function.arguments)
-    matches = arguments["matches"]
-    return matches
+    try:
+        call = response.choices[0].message.tool_calls[0]
+        arguments = json.loads(call.function.arguments)
+        matches = arguments["matches"]
+
+        matched_names = [m["name"] for m in matches]
+        matched_entity_ids = [
+            eid
+            for eid, name in entity_id_to_name.items()
+            if name in matched_names
+        ]
+
+        urls_stmt = (
+            select(Entity.entity_id, WebpageContent.url)
+            .join(
+                EntityWebpageContentAssociation,
+                Entity.entity_id == EntityWebpageContentAssociation.entity_id,
+            )
+            .join(
+                WebpageContent,
+                WebpageContent.webpage_content_id
+                == EntityWebpageContentAssociation.webpage_content_id,
+            )
+            .where(Entity.entity_id.in_(matched_entity_ids))
+        )
+
+        url_rows = db.execute(urls_stmt).all()
+        db.close()
+
+        # Map entity_id to URLs
+        entity_id_to_urls = {}
+        for entity_id, url in url_rows:
+            entity_id_to_urls.setdefault(entity_id, set()).add(url)
+
+        # Update matches with URLs
+        for match in matches:
+            for entity_id, name in entity_id_to_name.items():
+                if match["name"] == name:
+                    match["urls"] = list(entity_id_to_urls.get(entity_id, []))
+                    break
+
+        return matches
+    except Exception:
+        LOGGER.exception(f"{response} could not return a tool")
+        return []

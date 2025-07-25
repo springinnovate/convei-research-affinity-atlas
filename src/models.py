@@ -85,7 +85,6 @@ class Entity(Base):
         cascade="all, delete-orphan",
     )
 
-    # ↔ Snippets
     snippets = relationship(
         "EntityWebpageSnippet",
         back_populates="entity",
@@ -129,7 +128,6 @@ class EntityWebpageSnippet(Base):
 
     entity = relationship("Entity", back_populates="snippets")
 
-    # ↔ Webpages (many-to-many)
     related_webpages = relationship(
         "WebpageContent",
         secondary=webpage_snippet_association,
