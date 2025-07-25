@@ -36,9 +36,10 @@ Use ONLY the data below.
 {bios_json}
 
 Task:
-• Read the user's interests and every candidate bio.
-• Choose at least 10 people aswhose bio aligns with the user's interests.
-• For each selected person provide:
+• Carefully read the user's interests and each candidate bio.
+• Identify all candidates whose biographies meaningfully align with the user's interests.
+• Include only candidates who have clear relevance; do not add individuals whose relevance is questionable or weak.
+• For each selected candidate, provide:
     – name
     – relevance_score (1‑100, higher = better match)
     – rationale (one concise sentence)
@@ -124,7 +125,9 @@ async def safe_openai_completion(messages, tools=None, tool_choice=None):
                 tool_choice=tool_choice,
             )
         except Exception as e:
-            LOGGER.warning(f"Encountered this error during openaiapi call: {e!s}")
+            LOGGER.warning(
+                f"Encountered this error during openaiapi call: {e!s}"
+            )
             if attempt == max_attempts:
                 return f"***OpenAI error***: {e!s}"
 
@@ -185,7 +188,9 @@ async def generate_bio(entity_id: int):
             .first()
         )
         if cached:
-            LOGGER.debug(f"cached result found, returning that:\n\n{cached.summary}")
+            LOGGER.debug(
+                f"cached result found, returning that:\n\n{cached.summary}"
+            )
             return cached.summary
 
         entity_name = db.execute(
@@ -283,9 +288,19 @@ async def analyze_entity_context(webpage_content_id, progress_store, crawl_id):
             ],
             tool_choice="auto",
         )
+        message = response.choices[0].message
 
-        args = response.choices[0].message.tool_calls[0].function.arguments
-        result_json = json.loads(args)
+        if message.tool_calls:
+            result_json = json.loads(message.tool_calls[0].function.arguments)
+        elif message.content:
+            LOGGER.warning(
+                f"LLM response (no function call): {message.content}"
+            )
+            return
+        else:
+            raise ValueError(
+                f"Unexpected OpenAI response (no tool call, no explanation). {messages} \n\n {response}"
+            )
 
         for person in result_json.get("people", []):
             name = person.get("name", "").strip()
@@ -299,7 +314,9 @@ async def analyze_entity_context(webpage_content_id, progress_store, crawl_id):
 
             # grab the entity associated with the person, or make it
             entity = (
-                db.query(Entity).filter(func.lower(Entity.name) == name.lower()).first()
+                db.query(Entity)
+                .filter(func.lower(Entity.name) == name.lower())
+                .first()
             )
             if not entity:
                 entity = Entity(name=name)
@@ -325,7 +342,8 @@ async def analyze_entity_context(webpage_content_id, progress_store, crawl_id):
             # link the entity to the webpage where it was referenced
             if not db.query(
                 exists().where(
-                    EntityWebpageContentAssociation.entity_id == entity.entity_id,
+                    EntityWebpageContentAssociation.entity_id
+                    == entity.entity_id,
                     EntityWebpageContentAssociation.webpage_content_id
                     == webpage_content_id,
                 )
