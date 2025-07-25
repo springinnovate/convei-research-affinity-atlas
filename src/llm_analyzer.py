@@ -9,10 +9,10 @@ import hashlib
 import json
 import sys
 
+from sqlalchemy.orm import Session
 from sqlalchemy import func, exists, select
-from openai import OpenAI
 from dotenv import load_dotenv
-from openai import AsyncOpenAI, APITimeoutError
+from openai import AsyncOpenAI
 
 from .models import (
     WebpageContent,
@@ -21,7 +21,6 @@ from .models import (
     EntityWebpageSnippet,
     EntityWebpageContentAssociation,
 )
-from .database import SessionLocal
 
 
 MATCH_PEOPLE_PROMPT_TEMPLATE = """
@@ -88,6 +87,7 @@ logging.getLogger("openai").setLevel(logging.INFO)
 
 load_dotenv()
 
+
 EXTRACT_PEOPLE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -144,8 +144,7 @@ async def keyed_lock(entity_id: int, ctx_hash: str):
         yield
 
 
-def get_all_snippets(entity_id: int):
-    db = SessionLocal()
+def get_all_snippets(entity_id: int, db: Session):
     snippets = (
         (
             db.execute(
@@ -162,12 +161,10 @@ def get_all_snippets(entity_id: int):
     return context_text, context_hash
 
 
-async def generate_bio(entity_id: int):
-    db = SessionLocal()
-
+async def generate_bio(entity_id: int, db: Session):
     # 1) get any entityLLManalysis that was done before
     # 2) get all the entity_webpage snippet texts for that entity
-    context_text, context_hash = get_all_snippets(entity_id)
+    context_text, context_hash = get_all_snippets(entity_id, db)
     if not context_text:
         return "No relevant context found."
 
@@ -241,15 +238,14 @@ async def generate_bio(entity_id: int):
         )
         db.add(analysis)
         db.commit()
-        db.close()
 
     return summary
 
 
-async def analyze_entity_context(webpage_content_id, progress_store, crawl_id):
+async def analyze_entity_context(
+    webpage_content_id, progress_store, crawl_id, db: Session
+):
     LOGGER.debug(f"analyzing people content for {webpage_content_id}")
-    db = SessionLocal()
-
     try:
         # TODO: make sure there isn't a race condition here where two queries might try to process the same page
         url_content = db.query(WebpageContent).get(webpage_content_id)
@@ -363,13 +359,9 @@ async def analyze_entity_context(webpage_content_id, progress_store, crawl_id):
     except Exception:
         db.rollback()
         LOGGER.exception(f"problem on page {webpage_content_id}")
-    finally:
-        db.close()
 
 
-async def llm_match_people(
-    user_interest_text,
-):
+async def llm_match_people(user_interest_text, db: Session):
     latest = (
         select(
             EntityLLMAnalysis.entity_id,
@@ -390,7 +382,6 @@ async def llm_match_people(
     )
 
     # fetch rows -> dict
-    db = SessionLocal()
     rows = db.execute(stmt).all()
     entity_id_to_name = {entity_id: name for entity_id, name, _ in rows}
     name_to_bio_dict = {name: summary for _, name, summary in rows}
@@ -442,7 +433,6 @@ async def llm_match_people(
         )
 
         url_rows = db.execute(urls_stmt).all()
-        db.close()
 
         # Map entity_id to URLs
         entity_id_to_urls = {}

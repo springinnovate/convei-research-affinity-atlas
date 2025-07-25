@@ -8,6 +8,7 @@ import re
 from urllib.parse import urljoin, urlparse
 
 from playwright.async_api import async_playwright
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from .database import SessionLocal
 from .models import WebpageContent
@@ -46,7 +47,11 @@ async def fetch_page(url, page, db):
     if not webpage_record:
         start = time.time()
         LOGGER.debug(f"attempting to fetch {url}")
-        await page.goto(url, wait_until="networkidle")
+        try:
+            await page.goto(url, wait_until="networkidle", timeout=30000)
+        except PlaywrightTimeoutError:
+            LOGGER.warning(f"Timed out fetching {url}. Retrying with 'load'.")
+            await page.goto(url, wait_until="load", timeout=15000)
         html_content = await page.content()
         text_content = await page.evaluate("document.body.innerText")
         title = await page.title()
@@ -118,6 +123,7 @@ async def crawl_domain(start_url, max_pages, progress_store, crawl_id):
                             webpage_record.webpage_content_id,
                             progress_store,
                             crawl_id,
+                            db,
                         )
                     )
                     LOGGER.debug(

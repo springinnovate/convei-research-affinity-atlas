@@ -271,36 +271,45 @@
               }).join('');
             }
 
-              getEl('MatchPeopleBtn').addEventListener('click', async () => {
-                const btn  = getEl('MatchPeopleBtn'),
-                      txt  = getEl('MatchPeopleBtnText'),
-                      spin = getEl('MatchPeopleBtnSpinner'),
-                      box  = getEl('UserInterestText'),
-                      input = box.value.trim();
+            getEl('MatchPeopleBtn').addEventListener('click', async () => {
+              const btn  = getEl('MatchPeopleBtn'),
+                    txt  = getEl('MatchPeopleBtnText'),
+                    spin = getEl('MatchPeopleBtnSpinner'),
+                    box  = getEl('UserInterestText'),
+                    input = box.value.trim();
 
-                if (!input) return;
+              if (!input) return;
 
-                // UI: disable & spin
-                btn.disabled = true;
+              // UI: disable & spin
+              btn.disabled = true;
+              txt.textContent = 'Generating bios...';
+              spin.classList.remove('d-none');
+
+              try {
+                // First update all bios
+                await fetchJSON('/generate_all_bios', { method: 'POST' });
+
+                // Update UI status to matching
                 txt.textContent = 'Matching...';
-                spin.classList.remove('d-none');
 
-                try {
-                  const matches = await fetchJSON('/match_people', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ user_interest_text: input })
-                  });
-                  showMatches(matches || []);
-                } catch (e) {
-                  getEl('MatchResults').textContent = 'Error fetching matches.';
-                  console.error(e);
-                } finally {
-                  btn.disabled = false;
-                  txt.textContent = 'Find Matches';
-                  spin.classList.add('d-none');
-                }
-              });
+                // Now fetch matches
+                const matches = await fetchJSON('/match_people', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ user_interest_text: input })
+                });
+
+                showMatches(matches || []);
+
+              } catch (e) {
+                getEl('MatchResults').textContent = 'Error fetching matches.';
+                console.error(e);
+              } finally {
+                btn.disabled = false;
+                txt.textContent = 'Find Matches';
+                spin.classList.add('d-none');
+              }
+            });
 
             document.addEventListener('DOMContentLoaded',()=>{
               loadUrls();
