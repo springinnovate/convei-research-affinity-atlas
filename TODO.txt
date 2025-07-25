@@ -1,10 +1,13 @@
 TODO:
 * convei searcher
-    * the active crawls seems laggy might be duplicated code in index.html, i'll have to check later
+    x the active crawls seems laggy might be duplicated code in index.html, i'll have to check later
+    x display not only the active crawls but phases like fetched, analyzed, complete
     * actually report about that person you just selected
+        * right now it just shows it's selected
     * collapse the crawled pages
-    * put a count of how many pages are crawled
-    * seems like when we ask for a person it will hang while it's also parsing a webpage
+    x the crawling button keeps spinning even after it's done
+    x put a count of how many pages are crawled
+    x seems like when we ask for a person it will hang while it's also parsing a webpage
     * make a search function
         * most like "x"
         * "search term"
