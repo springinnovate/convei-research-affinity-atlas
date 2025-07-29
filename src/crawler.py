@@ -94,7 +94,7 @@ async def safe_fetch_url(url, page, db):
 
 
 async def crawl_domain(
-    start_url, max_pages, url_pattern, required_text, progress_store, crawl_id
+    start_url, url_pattern, required_text, max_pages, progress_store, crawl_id
 ):
     LOGGER.debug(
         f"about to start crawling {start_url} (max pages to check {max_pages})"

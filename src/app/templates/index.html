@@ -173,6 +173,8 @@
               e.preventDefault();
               const url = getEl('url').value,
                     max_pages = +getEl('max-pages').value,
+                    url_pattern = getEl('url-pattern').value,
+                    required_text = getEl('required-text').value;
                     btn = getEl('crawl-btn'),
                     txt = getEl('crawl-btn-text'),
                     spn = getEl('crawl-btn-spinner');
@@ -185,7 +187,7 @@
               fetchJSON('/start_crawl/',{
                 method:'POST',
                 headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({url,max_pages})
+                body:JSON.stringify({url,max_pages, url_pattern, required_text})
               }).then(({crawl_id:id})=>{
                 activeCrawlIds.add(id);
                 pollStatus(id);

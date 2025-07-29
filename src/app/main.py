@@ -150,6 +150,8 @@ async def get_bio(req: PersonRequest):
 class CrawlRequest(BaseModel):
     url: str
     max_pages: int
+    url_pattern: str
+    required_text: str
 
 
 PROGRESS_STORE = {}
