@@ -21,14 +21,9 @@ from sqlalchemy import select, func
 
 from ..parser import fetch_page_content
 from ..database import SessionLocal, init_db
-from ..models import (
-    WebpageContent,
-    Entity,
-    EntityWebpageSnippet,
-    EntityLLMAnalysis,
-)
+from ..models import WebpageContent, Entity
 from ..crawler import crawl_domain
-from ..llm_analyzer import generate_bio, get_all_snippets, llm_match_people
+from ..llm_analyzer import generate_bio, llm_match_people
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -163,6 +158,9 @@ PROGRESS_STORE = {}
 @app.post("/start_crawl/")
 async def start_crawl(request: CrawlRequest):
     crawl_id = request.url
+    max_pages = request.max_pages
+    url_pattern = request.url_pattern
+    required_text = request.required_text
     existing_progress = PROGRESS_STORE.get(crawl_id)
     LOGGER.debug(f"EXISTING PROGRESS: {existing_progress}")
     if existing_progress and not existing_progress["completed"]:
@@ -179,7 +177,14 @@ async def start_crawl(request: CrawlRequest):
     }
 
     asyncio.create_task(
-        crawl_domain(request.url, request.max_pages, PROGRESS_STORE, crawl_id)
+        crawl_domain(
+            request.url,
+            url_pattern,
+            required_text,
+            max_pages,
+            PROGRESS_STORE,
+            crawl_id,
+        )
     )
     return {"crawl_id": crawl_id, "status": "started"}
 

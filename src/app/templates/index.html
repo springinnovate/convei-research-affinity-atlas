@@ -27,12 +27,12 @@
                         Analyze a Conference or Academic URL
                     </h5>
                     <form id="crawl-form" class="row g-2">
-                        <div class="col-md-8">
+                        <div class="col-md-6">
                             <input
                                 type="url"
                                 class="form-control"
                                 id="url"
-                                placeholder="URL to analyze"
+                                placeholder="Starting URL"
                                 required
                             />
                         </div>
@@ -46,6 +46,25 @@
                                 value="1"
                             />
                         </div>
+                        <div class="col-md-6">
+                            <input
+                                type="text"
+                                class="form-control"
+                                id="url-pattern"
+                                placeholder="Required URL pattern (e.g., '/speakers/')"
+                                required
+                            />
+                        </div>
+                        <div class="col-md-6">
+                            <input
+                                type="text"
+                                class="form-control"
+                                id="required-text"
+                                placeholder="Required text on page (e.g., 'Keynote Speaker')"
+                                required
+                            />
+                        </div>
+
                         <div class="col-md-2">
                             <button
                                 type="submit"

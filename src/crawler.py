@@ -93,7 +93,9 @@ async def safe_fetch_url(url, page, db):
     return await future
 
 
-async def crawl_domain(start_url, max_pages, progress_store, crawl_id):
+async def crawl_domain(
+    start_url, max_pages, url_pattern, required_text, progress_store, crawl_id
+):
     LOGGER.debug(
         f"about to start crawling {start_url} (max pages to check {max_pages})"
     )
@@ -122,6 +124,15 @@ async def crawl_domain(start_url, max_pages, progress_store, crawl_id):
                     LOGGER.warning(f"Oops, couldn't fetch {url}. Skipping.")
                     continue
 
+                if (
+                    required_text.lower()
+                    not in webpage_record.text_content.lower()
+                ):
+                    LOGGER.warning(
+                        f"could not find required text {required_text} at {url}, skipping"
+                    )
+                    continue
+
                 if not webpage_record.analyzed:
                     progress_store[crawl_id]["fetched"] += 1
                     analyze_entity_task = asyncio.create_task(
@@ -137,11 +148,19 @@ async def crawl_domain(start_url, max_pages, progress_store, crawl_id):
                     )
                 html_content = webpage_record.html_content
                 LOGGER.debug(f"extracting links from {url}")
-                links_found_in_page = await extract_links(
+                raw_links_found_in_page = await extract_links(
                     html_content, url, domain
                 )
+                filtered_links_found_in_page = set(
+                    [
+                        x
+                        for x in raw_links_found_in_page
+                        if url_pattern.lower() in x.lower()
+                    ]
+                )
+
                 links_to_crawl.update(
-                    set(links_found_in_page) - processed_links
+                    set(filtered_links_found_in_page) - processed_links
                 )
                 progress_store[crawl_id]["discovered"] = len(processed_links)
 
