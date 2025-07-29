@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, exists, select
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
+from openai import BadRequestError
 
 from .models import (
     WebpageContent,
@@ -35,12 +36,12 @@ Use ONLY the data below.
 {bios_json}
 
 Task:
-• Carefully read the user's interests and each candidate bio.
-• Identify all candidates whose biographies meaningfully align with the user's interests.
-• Include only candidates who have clear relevance; do not add individuals whose relevance is questionable or weak.
-• For each selected candidate, provide:
+* Carefully read the user's question and each candidate bio.
+* Identify all candidates whose biographies meaningfully align with the user's question.
+* Include candidates who have clear relevance as well as those who are somewhat adjacent; do not add individuals who are irrelevant.
+* For each selected candidate, provide:
     – name
-    – relevance_score (1‑100, higher = better match)
+    – relevance_score (1-100, higher = better match)
     – rationale (one concise sentence)
     – bio_quote (<= 20 words copied verbatim from the bio)
 
@@ -124,10 +125,10 @@ async def safe_openai_completion(messages, tools=None, tool_choice=None):
                 tools=tools,
                 tool_choice=tool_choice,
             )
+        except BadRequestError:
+            raise
         except Exception as e:
-            LOGGER.warning(
-                f"Encountered this error during openaiapi call: {e!s}"
-            )
+            LOGGER.warning(f"Encountered this error during openaiapi call: {e!s}")
             if attempt == max_attempts:
                 return f"***OpenAI error***: {e!s}"
 
@@ -185,9 +186,7 @@ async def generate_bio(entity_id: int, db: Session):
             .first()
         )
         if cached:
-            LOGGER.debug(
-                f"cached result found, returning that:\n\n{cached.summary}"
-            )
+            LOGGER.debug(f"cached result found, returning that:\n\n{cached.summary}")
             return cached.summary
 
         entity_name = db.execute(
@@ -242,6 +241,31 @@ async def generate_bio(entity_id: int, db: Session):
     return summary
 
 
+async def _call_match_tool(prompt):
+    """Low-level call that returns matches or raises BadRequestError."""
+    try:
+        response = await safe_openai_completion(
+            messages=[{"role": "user", "content": prompt}],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "match_people",
+                        "description": "Return the top people matching the user's research interests.",
+                        "parameters": MATCH_PEOPLE_SCHEMA,
+                    },
+                }
+            ],
+            tool_choice="auto",
+        )
+        call = response.choices[0].message.tool_calls[0]
+        return json.loads(call.function.arguments)["matches"]
+    except BadRequestError:
+        raise
+    except Exception as e:
+        raise RuntimeError(str(e))
+
+
 async def analyze_entity_context(
     webpage_content_id, progress_store, crawl_id, db: Session
 ):
@@ -289,9 +313,7 @@ async def analyze_entity_context(
         if message.tool_calls:
             result_json = json.loads(message.tool_calls[0].function.arguments)
         elif message.content:
-            LOGGER.warning(
-                f"LLM response (no function call): {message.content}"
-            )
+            LOGGER.warning(f"LLM response (no function call): {message.content}")
             return
         else:
             raise ValueError(
@@ -310,9 +332,7 @@ async def analyze_entity_context(
 
             # grab the entity associated with the person, or make it
             entity = (
-                db.query(Entity)
-                .filter(func.lower(Entity.name) == name.lower())
-                .first()
+                db.query(Entity).filter(func.lower(Entity.name) == name.lower()).first()
             )
             if not entity:
                 entity = Entity(name=name)
@@ -338,8 +358,7 @@ async def analyze_entity_context(
             # link the entity to the webpage where it was referenced
             if not db.query(
                 exists().where(
-                    EntityWebpageContentAssociation.entity_id
-                    == entity.entity_id,
+                    EntityWebpageContentAssociation.entity_id == entity.entity_id,
                     EntityWebpageContentAssociation.webpage_content_id
                     == webpage_content_id,
                 )
@@ -386,67 +405,66 @@ async def llm_match_people(user_interest_text, db: Session):
     entity_id_to_name = {entity_id: name for entity_id, name, _ in rows}
     name_to_bio_dict = {name: summary for _, name, summary in rows}
 
-    prompt = MATCH_PEOPLE_PROMPT_TEMPLATE.format(
-        user_interest_text=user_interest_text,
-        bios_json=json.dumps(name_to_bio_dict, indent=2),
-    )
+    matches = []
+    to_process = [name_to_bio_dict]
 
-    response = await safe_openai_completion(
-        messages=[{"role": "user", "content": prompt}],
-        tools=[
-            {
-                "type": "function",
-                "function": {
-                    "name": "match_people",
-                    "description": "Return the top people matching the user's research interests.",
-                    "parameters": MATCH_PEOPLE_SCHEMA,
-                },
-            }
-        ],
-        tool_choice="auto",
-    )
-    LOGGER.debug(response)
-    try:
-        call = response.choices[0].message.tool_calls[0]
-        arguments = json.loads(call.function.arguments)
-        matches = arguments["matches"]
-
-        matched_names = [m["name"] for m in matches]
-        matched_entity_ids = [
-            eid
-            for eid, name in entity_id_to_name.items()
-            if name in matched_names
-        ]
-
-        urls_stmt = (
-            select(Entity.entity_id, WebpageContent.url)
-            .join(
-                EntityWebpageContentAssociation,
-                Entity.entity_id == EntityWebpageContentAssociation.entity_id,
-            )
-            .join(
-                WebpageContent,
-                WebpageContent.webpage_content_id
-                == EntityWebpageContentAssociation.webpage_content_id,
-            )
-            .where(Entity.entity_id.in_(matched_entity_ids))
+    context_error = "context_length_exceeded"
+    while to_process:
+        bios_chunk = to_process.pop()
+        prompt = MATCH_PEOPLE_PROMPT_TEMPLATE.format(
+            user_interest_text=user_interest_text,
+            bios_json=json.dumps(bios_chunk, indent=2),
         )
 
-        url_rows = db.execute(urls_stmt).all()
+        try:
+            chunk_matches = await _call_match_tool(prompt)
+            matched_names = [m["name"] for m in chunk_matches]
+            matched_entity_ids = [
+                eid for eid, name in entity_id_to_name.items() if name in matched_names
+            ]
 
-        # Map entity_id to URLs
-        entity_id_to_urls = {}
-        for entity_id, url in url_rows:
-            entity_id_to_urls.setdefault(entity_id, set()).add(url)
+            urls_stmt = (
+                select(Entity.entity_id, WebpageContent.url)
+                .join(
+                    EntityWebpageContentAssociation,
+                    Entity.entity_id == EntityWebpageContentAssociation.entity_id,
+                )
+                .join(
+                    WebpageContent,
+                    WebpageContent.webpage_content_id
+                    == EntityWebpageContentAssociation.webpage_content_id,
+                )
+                .where(Entity.entity_id.in_(matched_entity_ids))
+            )
 
-        # Update matches with URLs
-        for match in matches:
-            for entity_id, name in entity_id_to_name.items():
-                if match["name"] == name:
-                    match["urls"] = list(entity_id_to_urls.get(entity_id, []))
-                    break
+            url_rows = db.execute(urls_stmt).all()
 
-        return matches
-    except Exception:
-        LOGGER.exception(f"{response} could not return a tool")
-        return []
+            # Map entity_id to URLs
+            entity_id_to_urls = {}
+            for entity_id, url in url_rows:
+                entity_id_to_urls.setdefault(entity_id, set()).add(url)
+
+            # Update matches with URLs
+            for match in chunk_matches:
+                for entity_id, name in entity_id_to_name.items():
+                    if match["name"] == name:
+                        match["urls"] = list(entity_id_to_urls.get(entity_id, []))
+                        break
+            matches.extend(chunk_matches)
+
+        except BadRequestError as e:
+            if e.code == context_error:
+                # context too long -- split chunk in half
+                names = list(bios_chunk.keys())
+                if len(names) == 1:
+                    logging.warning(f"Dropping oversized single bio for {names[0]}")
+                mid = len(names) // 2
+                left = {n: bios_chunk[n] for n in names[:mid]}
+                right = {n: bios_chunk[n] for n in names[mid:]}
+                to_process.extend([left, right])
+            else:
+                logging.exception(f"OpenAI error (non-context): {e}")
+                raise
+        await asyncio.sleep(0)  # yield control for fairness
+
+    return matches

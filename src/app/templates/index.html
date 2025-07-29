@@ -254,21 +254,50 @@
               }
             }
 
-            function showMatches(matches) {
+            async function fetchBio(name) {
+              try {
+                const res = await fetchJSON('/person/bio', {
+                  method: 'POST',
+                  headers: {'Content-Type': 'application/json'},
+                  body: JSON.stringify({ person_name: name })
+                });
+                return res.bio;
+              } catch (e) {
+                console.error(`Error fetching bio for ${name}:`, e);
+                return 'Bio not available.';
+              }
+            }
+
+            async function showMatches(matches) {
               const out = getEl('MatchResults');
+
               if (!matches.length) {
                 out.textContent = 'No relevant people found.';
                 return;
               }
-              out.innerHTML = matches.map(m => {
-                const urlList = m.urls ? `<ul>${m.urls.map(url => `<li><a href="${url}" target="_blank">${url}</a></li>`).join('')}</ul>` : '';
-                return `<div class="alert alert-info py-1 mb-2">
-                          <strong>${m.name}</strong> — score ${m.relevance_score}<br>
-                          <em>${m.rationale}</em><br>
-                          <small>${m.bio_quote}</small>
-                          ${urlList}
-                        </div>`;
-              }).join('');
+
+              out.innerHTML = '';
+
+              for (const m of matches) {
+                const bio = await fetchBio(m.name);
+
+                const urlList = m.urls ? `
+                  <ul>${m.urls.map(url => `<li><a href="${url}" target="_blank">${url}</a></li>`).join('')}</ul>
+                ` : '';
+
+                const matchEl = document.createElement('div');
+                matchEl.className = 'alert alert-info py-1 mb-2';
+
+                matchEl.innerHTML = `
+                  <strong>${m.name}</strong> — score ${m.relevance_score}<br>
+                  <em>${m.rationale}</em><br>
+                  <small>${m.bio_quote}</small>
+                  <div class="mt-2"><strong>Bio:</strong> ${bio}</div>
+                  ${urlList}
+                `;
+
+                out.appendChild(matchEl);
+              }
             }
 
             getEl('MatchPeopleBtn').addEventListener('click', async () => {
