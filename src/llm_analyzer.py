@@ -145,7 +145,7 @@ async def keyed_lock(entity_id: int, ctx_hash: str):
         yield
 
 
-def get_all_snippets(entity_id: int, db: Session):
+def get_all_snippets_for_entity(entity_id: int, db: Session):
     snippets = (
         (
             db.execute(
@@ -165,7 +165,7 @@ def get_all_snippets(entity_id: int, db: Session):
 async def generate_bio(entity_id: int, db: Session):
     # 1) get any entityLLManalysis that was done before
     # 2) get all the entity_webpage snippet texts for that entity
-    context_text, context_hash = get_all_snippets(entity_id, db)
+    context_text, context_hash = get_all_snippets_for_entity(entity_id, db)
     if not context_text:
         return "No relevant context found."
 
