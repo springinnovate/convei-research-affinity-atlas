@@ -354,6 +354,7 @@ async def analyze_entity_context(
                         snippet_hash=snippet_hash,
                     )
                 )
+                db.flush()
 
             # link the entity to the webpage where it was referenced
             if not db.query(
@@ -369,6 +370,7 @@ async def analyze_entity_context(
                         webpage_content_id=webpage_content_id,
                     )
                 )
+                db.flush()
 
         url_content.analyzed = True
         LOGGER.debug(f"webpage content:{webpage_content_id} is analyzed")
