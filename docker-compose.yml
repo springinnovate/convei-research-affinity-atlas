@@ -8,8 +8,7 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ./app/data:/app/data           # data volume
-      - ./app/src:/app/src             # source code hot-reloaded
-      - ./app/.env:/app/.env:ro        # keeps env vars out of the image
+      - ./app:/app             # source code hot-reloaded
     ports:
       - '8000:8000'                    # localhost dev access
     environment:
