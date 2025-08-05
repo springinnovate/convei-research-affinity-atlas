@@ -21,8 +21,70 @@
         </nav>
 
         <div class="container">
-            <h4 class="mb-3">Indexed Pages</h4>
-            <div id="urlListContainer" class="mt-4"></div>
+            <div class="card shadow-sm mb-4">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        Analyze a Conference or Academic URL
+                    </h5>
+                    <form id="crawl-form" class="row g-2">
+                        <div class="col-md-6">
+                            <input
+                                type="url"
+                                class="form-control"
+                                id="url"
+                                placeholder="Starting URL"
+                                required
+                            />
+                        </div>
+                        <div class="col-md-2">
+                            <input
+                                type="number"
+                                class="form-control"
+                                id="max-pages"
+                                placeholder="Max pages"
+                                required
+                                value="1"
+                            />
+                        </div>
+                        <div class="col-md-6">
+                            <input
+                                type="text"
+                                class="form-control"
+                                id="url-pattern"
+                                placeholder="Required URL pattern (e.g., '/speakers/')"
+                                required
+                            />
+                        </div>
+                        <div class="col-md-6">
+                            <input
+                                type="text"
+                                class="form-control"
+                                id="required-text"
+                                placeholder="Required text on page (e.g., 'Keynote Speaker')"
+                                required
+                            />
+                        </div>
+
+                        <div class="col-md-2">
+                            <button
+                                type="submit"
+                                class="btn btn-primary w-IN_PROGRESS_CRAWL_POLL_TIME"
+                                id="crawl-btn"
+                            >
+                                <span id="crawl-btn-text">Start Crawl</span>
+                                <span
+                                    id="crawl-btn-spinner"
+                                    class="spinner-border spinner-border-sm d-none"
+                                    role="status"
+                                ></span>
+                            </button>
+                        </div>
+                    </form>
+
+                    <h6 class="mt-4">Active Crawls</h6>
+                    <div id="crawl-status-list"></div>
+                </div>
+            </div>
 
             <h4 class="mt-5 mb-3">Find Interesting People</h4>
               <div id="MatchPeopleContainer">
@@ -44,11 +106,38 @@
                 <!-- The value select element will be inserted here -->
             </div>
 
+            <h4 class="mb-3">Indexed Pages</h4>
+            <div id="urlListContainer" class="mt-4"></div>
         </div>
 
         <script>
+            const DEFAULT_CRAWL_POLL_TIME = 10000,
+                  IN_PROGRESS_CRAWL_POLL_TIME = 5000;
+
+            let crawlInterval,
+                currentIntervalDelay = DEFAULT_CRAWL_POLL_TIME;
+
+            const activeCrawlIds = new Set(),
+                  knownUrls = new Set();
+
+            function resetCrawlBtn() {
+              const btn = getEl('crawl-btn'),
+                    txt = getEl('crawl-btn-text'),
+                    spn = getEl('crawl-btn-spinner');
+
+              btn.disabled = false;
+              txt.textContent = 'Start Crawl';
+              spn.classList.add('d-none');
+            }
+
             const getEl = id => document.getElementById(id);
             const fetchJSON = (u,o) => fetch(u,o).then(r => r.json());
+
+            function startCrawlPolling(delay){
+              clearInterval(crawlInterval);
+              currentIntervalDelay = delay;
+              crawlInterval = setInterval(loadActiveCrawls, delay);
+            }
 
             function createOrGetRow(id){
               let row = getEl('crawl-row-'+id);
@@ -64,6 +153,81 @@
             const updateRow = (row,msg,done=false)=>
               (row.textContent = msg,
                row.className = `alert ${done?'alert-success':'alert-info'} py-1 mb-2`);
+
+            function loadActiveCrawls(){
+              fetchJSON('/active_crawls/').then(data=>{
+                const ids = Object.keys(data);
+                ids.filter(id=>!activeCrawlIds.has(id)).forEach(id=>{
+                  activeCrawlIds.add(id);
+                });
+                ids.forEach(id=>{
+                  pollStatus(id);
+                });
+                const currentPollTime = ids.length ? IN_PROGRESS_CRAWL_POLL_TIME
+                                           : DEFAULT_CRAWL_POLL_TIME;
+                if(currentPollTime !== currentIntervalDelay) startCrawlPolling(currentPollTime);
+              }).catch(console.error);
+            }
+
+            getEl('crawl-form').addEventListener('submit',e=>{
+              e.preventDefault();
+              const url = getEl('url').value,
+                    max_pages = +getEl('max-pages').value,
+                    url_pattern = getEl('url-pattern').value,
+                    required_text = getEl('required-text').value;
+                    btn = getEl('crawl-btn'),
+                    txt = getEl('crawl-btn-text'),
+                    spn = getEl('crawl-btn-spinner');
+
+              btn.disabled = true;
+              txt.textContent = 'Crawling...';
+              spn.classList.remove('d-none');
+              startCrawlPolling(IN_PROGRESS_CRAWL_POLL_TIME);
+
+              fetchJSON('/start_crawl/',{
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({url,max_pages, url_pattern, required_text})
+              }).then(({crawl_id:id})=>{
+                activeCrawlIds.add(id);
+                pollStatus(id);
+              });
+            });
+
+            function pollStatus(crawlId) {
+              const row = createOrGetRow(crawlId);
+              fetchJSON('/crawl_status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ crawl_id: crawlId })
+              })
+                .then(s => {
+                  if (s.error) {
+                    updateRow(row, s.error, true);
+                    return;
+                  }
+
+                  const url    = new URL(crawlId);
+                  const prefix = s.completed ? 'Completed analysis' : 'In progress';
+                  const status = `${prefix}: Processed: ${s.processed} | Fetched: ${s.fetched} | Discovered: ${s.discovered}`;
+                  const alertClass = s.completed ? 'alert-success' : 'alert-warning';
+
+                  row.className = `alert ${alertClass} py-1 mb-2`;
+                  updateRow(row, `[${status}] ${url.hostname}${url.pathname}`, s.completed);
+                  loadUrls();
+                  loadEntities();
+
+                  if (s.completed) {
+                    activeCrawlIds.delete(crawlId);   // mark done
+                    if (activeCrawlIds.size === 0) resetCrawlBtn();
+                  }
+                })
+                .catch(() => {
+                  updateRow(row, 'Error checking status', true);
+                  activeCrawlIds.delete(crawlId);
+                  if (activeCrawlIds.size === 0) resetCrawlBtn();
+                });
+            }
 
             function loadUrls(){
               fetchJSON('/urls/').then(({top_level_domains}) => {
@@ -199,7 +363,9 @@
 
             document.addEventListener('DOMContentLoaded',()=>{
               loadUrls();
+              loadActiveCrawls();
               loadEntities();
+              startCrawlPolling(DEFAULT_CRAWL_POLL_TIME);
             });
             </script>
         <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>

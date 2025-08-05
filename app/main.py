@@ -61,6 +61,11 @@ async def read_root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
+@app.get("/admin")
+async def read_root(request: Request):
+    return templates.TemplateResponse("admin.html", {"request": request})
+
+
 @app.post("/analyze/")
 async def analyze_url(request: Request, url: str = Form(...)):
     result = await fetch_page_content(url)
