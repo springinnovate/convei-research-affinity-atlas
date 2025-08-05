@@ -10,9 +10,9 @@ from urllib.parse import urljoin, urlparse
 from playwright.async_api import async_playwright
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
-from .database import SessionLocal
-from .models import WebpageContent
-from .llm_analyzer import analyze_entity_context
+from database import SessionLocal
+from models import WebpageContent
+from llm_analyzer import analyze_entity_context
 
 logging.basicConfig(
     level=logging.DEBUG,

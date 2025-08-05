@@ -1,6 +1,5 @@
-"""Entrypoint for AAA app."""
+"""Entrypoint for CONVEI research affinity atlas app."""
 
-from datetime import datetime
 from urllib.parse import urlparse
 from collections import Counter
 import asyncio
@@ -17,13 +16,13 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi import HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import select
 
-from ..parser import fetch_page_content
-from ..database import SessionLocal, init_db
-from ..models import WebpageContent, Entity
-from ..crawler import crawl_domain
-from ..llm_analyzer import generate_bio, llm_match_people
+from parser import fetch_page_content
+from database import SessionLocal, init_db
+from models import WebpageContent, Entity
+from crawler import crawl_domain
+from llm_analyzer import generate_bio, llm_match_people
 
 logging.basicConfig(
     level=logging.DEBUG,

@@ -14,7 +14,7 @@ from sqlalchemy import (
     Table,
 )
 from sqlalchemy.orm import relationship
-from .database import Base
+from database import Base
 
 
 webpage_snippet_association = Table(

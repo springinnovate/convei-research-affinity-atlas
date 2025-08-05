@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from openai import BadRequestError
 
-from .models import (
+from models import (
     WebpageContent,
     EntityLLMAnalysis,
     Entity,
@@ -128,7 +128,9 @@ async def safe_openai_completion(messages, tools=None, tool_choice=None):
         except BadRequestError:
             raise
         except Exception as e:
-            LOGGER.warning(f"Encountered this error during openaiapi call: {e!s}")
+            LOGGER.warning(
+                f"Encountered this error during openaiapi call: {e!s}"
+            )
             if attempt == max_attempts:
                 return f"***OpenAI error***: {e!s}"
 
@@ -186,7 +188,9 @@ async def generate_bio(entity_id: int, db: Session):
             .first()
         )
         if cached:
-            LOGGER.debug(f"cached result found, returning that:\n\n{cached.summary}")
+            LOGGER.debug(
+                f"cached result found, returning that:\n\n{cached.summary}"
+            )
             return cached.summary
 
         entity_name = db.execute(
@@ -313,7 +317,9 @@ async def analyze_entity_context(
         if message.tool_calls:
             result_json = json.loads(message.tool_calls[0].function.arguments)
         elif message.content:
-            LOGGER.warning(f"LLM response (no function call): {message.content}")
+            LOGGER.warning(
+                f"LLM response (no function call): {message.content}"
+            )
             return
         else:
             raise ValueError(
@@ -332,7 +338,9 @@ async def analyze_entity_context(
 
             # grab the entity associated with the person, or make it
             entity = (
-                db.query(Entity).filter(func.lower(Entity.name) == name.lower()).first()
+                db.query(Entity)
+                .filter(func.lower(Entity.name) == name.lower())
+                .first()
             )
             if not entity:
                 entity = Entity(name=name)
@@ -359,7 +367,8 @@ async def analyze_entity_context(
             # link the entity to the webpage where it was referenced
             if not db.query(
                 exists().where(
-                    EntityWebpageContentAssociation.entity_id == entity.entity_id,
+                    EntityWebpageContentAssociation.entity_id
+                    == entity.entity_id,
                     EntityWebpageContentAssociation.webpage_content_id
                     == webpage_content_id,
                 )
@@ -422,14 +431,17 @@ async def llm_match_people(user_interest_text, db: Session):
             chunk_matches = await _call_match_tool(prompt)
             matched_names = [m["name"] for m in chunk_matches]
             matched_entity_ids = [
-                eid for eid, name in entity_id_to_name.items() if name in matched_names
+                eid
+                for eid, name in entity_id_to_name.items()
+                if name in matched_names
             ]
 
             urls_stmt = (
                 select(Entity.entity_id, WebpageContent.url)
                 .join(
                     EntityWebpageContentAssociation,
-                    Entity.entity_id == EntityWebpageContentAssociation.entity_id,
+                    Entity.entity_id
+                    == EntityWebpageContentAssociation.entity_id,
                 )
                 .join(
                     WebpageContent,
@@ -450,7 +462,9 @@ async def llm_match_people(user_interest_text, db: Session):
             for match in chunk_matches:
                 for entity_id, name in entity_id_to_name.items():
                     if match["name"] == name:
-                        match["urls"] = list(entity_id_to_urls.get(entity_id, []))
+                        match["urls"] = list(
+                            entity_id_to_urls.get(entity_id, [])
+                        )
                         break
             matches.extend(chunk_matches)
 
@@ -459,7 +473,9 @@ async def llm_match_people(user_interest_text, db: Session):
                 # context too long -- split chunk in half
                 names = list(bios_chunk.keys())
                 if len(names) == 1:
-                    logging.warning(f"Dropping oversized single bio for {names[0]}")
+                    logging.warning(
+                        f"Dropping oversized single bio for {names[0]}"
+                    )
                 mid = len(names) // 2
                 left = {n: bios_chunk[n] for n in names[:mid]}
                 right = {n: bios_chunk[n] for n in names[mid:]}
