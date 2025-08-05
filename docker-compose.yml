@@ -1,0 +1,65 @@
+version: '3.9'
+
+services:
+  app:
+    container_name: craa               # same image name you used
+    build:
+      context: ./app                   # Dockerfile sits in ./app
+      dockerfile: Dockerfile
+    volumes:
+      - ./app/data:/app/data           # data volume
+      - ./app/src:/app/src             # source code hot-reloaded
+      - ./app/.env:/app/.env:ro        # keeps env vars out of the image
+    ports:
+      - '8000:8000'                    # localhost dev access
+    environment:
+      PYTHONUNBUFFERED: '1'
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.http.routers.craa.rule=Host(`craa.ecoshard.org`)'
+      - 'traefik.http.routers.craa.entrypoints=websecure'
+      - 'traefik.http.routers.craa.tls=true'
+      - 'traefik.http.routers.craa.tls.certresolver=letsencrypt'
+      - 'traefik.http.services.craa.loadbalancer.server.port=8000'
+    depends_on:
+      - reverse-proxy
+    networks:
+      - web
+    tty: true
+    stdin_open: true                   # -it equivalent
+    deploy:                            # optional resource guards
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '2'
+          memory: 1G
+
+  reverse-proxy:
+    image: traefik:v2.11
+    container_name: traefik
+    command:
+      - '--providers.docker=true'
+      - '--providers.docker.exposedbydefault=false'
+      - '--entryPoints.web.address=:80'
+      - '--entryPoints.web.http.redirections.entryPoint.to=websecure'
+      - '--entryPoints.web.http.redirections.entryPoint.scheme=https'
+      - '--entryPoints.websecure.address=:443'
+      - '--certificatesResolvers.letsencrypt.acme.httpChallenge=true'
+      - '--certificatesResolvers.letsencrypt.acme.httpChallenge.entryPoint=web'
+      - '--certificatesResolvers.letsencrypt.acme.email=rich@springinnovate.org'
+      - '--certificatesResolvers.letsencrypt.acme.storage=/letsencrypt/acme.json'
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - '/var/run/docker.sock:/var/run/docker.sock:ro'
+      - './letsencrypt:/letsencrypt'
+    networks:
+      - web
+    restart: unless-stopped
+
+networks:
+  web:
+    name: web
