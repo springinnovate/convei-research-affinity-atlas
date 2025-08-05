@@ -168,13 +168,10 @@
 
               // UI: disable & spin
               btn.disabled = true;
-              txt.textContent = 'Generating bios...';
+              txt.textContent = 'Skipping bio generation...';
               spin.classList.remove('d-none');
 
               try {
-                // First update all bios
-                await fetchJSON('/generate_all_bios', { method: 'POST' });
-
                 // Update UI status to matching
                 txt.textContent = 'Matching...';
 
