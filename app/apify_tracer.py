@@ -138,12 +138,13 @@ async def parse_session(
     SPEAKER_DATA[name].append({"url": url, "content": content})
     await Actor.push_data({"speaker": name, "url": url, "content": content})
 
-    # Follow any “Abstracts” links in same page
-    for link in soup.select(
-        'div.content__card h2.section-title__title:-soup-contains("Abstracts") ~ ul a[href*="/Lists/Details/"]'
-    ):
-        abstract_url = urljoin(BASE, link["href"])
-        await q.put((0, ("session", abstract_url, name)))
+    # Follow any "Abstracts" links in same page
+    for card in soup.select("div.content__card"):
+        header = card.select_one("h2.section-title__title")
+        if header and "Abstracts" in header.get_text(strip=True):
+            Actor.log.info('Found "Abstracts" section in card.')
+            for a in card.select('a[href*="/Lists/Details/"]'):
+                await q.put((0, ("session", urljoin(BASE, a["href"]), name)))
 
 
 async def worker(q: asyncio.Queue, client: AsyncClient):
@@ -151,7 +152,7 @@ async def worker(q: asyncio.Queue, client: AsyncClient):
         try:
             _, item = await asyncio.wait_for(q.get(), timeout=9999)
         except asyncio.TimeoutError:
-            Actor.log.warning(f"timeout error on waiting for queue")
+            Actor.log.warning("timeout error on waiting for queue")
             return
         try:
             if len(VISITED) >= MAX_VISITED:
@@ -185,18 +186,8 @@ async def main() -> None:
             raise ValueError('Input must contain a "urls" array.')
 
         queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
-        # for u in urls:
-        #     await queue.put((10, ("listing", u)))
-
-        await queue.put(
-            (
-                0,
-                (
-                    "speaker",
-                    "https://events.rdmobile.com/Speakers/Details/2996050",
-                ),
-            )
-        )
+        for u in urls:
+            await queue.put((10, ("listing", u)))
 
         proxy_cfg = await Actor.create_proxy_configuration(groups=["auto"])
         proxy_url = await proxy_cfg.new_url()
