@@ -1,8 +1,8 @@
 """Entrypoint for CONVEI research affinity atlas app."""
 
 import os
-from urllib.parse import urlparse
-from collections import Counter
+from datetime import timezone
+from typing import Any, Dict, List, Optional, Tuple
 import asyncio
 import logging
 import sys
@@ -11,18 +11,15 @@ from pathlib import Path
 import uvicorn
 from fastapi import Depends
 from sqlalchemy.orm import Session
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi import HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
 
-from parser import fetch_page_content
 from database import SessionLocal, init_db
-from models import Entity
-from llm_analyzer import generate_bios
+from models import Entity, ProcessedFile
+from llm_analyzer import generate_bios, _llm_chunk_match, _merge_matches, _enc
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -39,9 +36,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 BASE_DIR = Path(__file__).resolve().parent
 
 app = FastAPI()
-app.mount(
-    "/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static"
-)
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.auto_reload = True
 
@@ -59,7 +54,7 @@ async def startup_event():
     init_db()
     input_json_path = os.environ.get("INPUT_JSON_PATH", None)
     if input_json_path is None:
-        raise ValueError(f"undefined INPUT_JSON_PATH env variable")
+        raise ValueError("undefined INPUT_JSON_PATH env variable")
     db = SessionLocal()
     await generate_bios(input_json_path, db)
 
@@ -69,94 +64,37 @@ async def read_root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
-@app.get("/admin")
-async def read_root(request: Request):
-    return templates.TemplateResponse("admin.html", {"request": request})
+@app.get("/get_info/")
+def get_info(db: Session = Depends(get_db)):
+    pf = db.query(ProcessedFile).order_by(ProcessedFile.processed_at.desc()).first()
+    if not pf:
+        return {"dbInfo": "Database not initialized yet."}
 
+    ts = pf.processed_at
+    # fall back if naive
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
 
-@app.post("/analyze/")
-async def analyze_url(request: Request, url: str = Form(...)):
-    result = await fetch_page_content(url)
-
-    db = SessionLocal()
-    url_content = WebpageContent(
-        url=url, content=result["content"], title=result["title"]
-    )
-    db.add(url_content)
-    db.commit()
-    db.close()
-    return RedirectResponse("/", status_code=303)
-
-
-@app.get("/urls/")
-async def list_urls():
-    db = SessionLocal()
-    urls = db.query(WebpageContent.url).all()
-    db.close()
-
-    # Extract the top-level domains
-    top_domains = [
-        f"{urlparse(u.url).scheme}://{urlparse(u.url).netloc}" for u in urls
-    ]
-
-    domain_counts = Counter(top_domains)
-
-    return {
-        "top_level_domains": [
-            {"domain": domain, "url_count": count}
-            for domain, count in domain_counts.items()
-        ]
-    }
+    return {"dbInfo": f"Database created from {pf.filename} at {ts.isoformat()}"}
 
 
 @app.get("/entities/")
 async def list_entities():
     db = SessionLocal()
-    entities = db.query(Entity).all()
-    db.close()
-    return {"entities": set(p.name for p in entities)}
+    try:
+        entities = db.query(Entity).all()
+        names = [p.name for p in entities if p.name]
 
+        # sort by last name (case-insensitive)
+        sorted_names = sorted(set(names), key=lambda n: n.strip().split()[-1].lower())
 
-@app.get("/WebpageContent/{url_id}")
-async def url_content(url_id: int):
-    LOGGER.debug(f"fetching content for {url_id}")
-    db = SessionLocal()
-    url_content = (
-        db.query(WebpageContent)
-        .filter(WebpageContent.webpage_content_id == url_id)
-        .first()
-    )
-    db.close()
-
-    if not url_content:
-        raise HTTPException(status_code=404, detail="URL content not found")
-
-    return {
-        "id": url_content.webpage_content_id,
-        "url": url_content.url,
-        "title": url_content.title,
-        "text_content": url_content.text_content,
-    }
+        return {"entities": sorted_names}
+    finally:
+        db.close()
 
 
 class PersonRequest(BaseModel):
     person_name: str
-
-
-@app.post("/person/bio")
-async def get_bio(req: PersonRequest):
-    db = SessionLocal()
-    entity = db.query(Entity).filter(Entity.name == req.person_name).first()
-
-    if not entity:
-        raise HTTPException(
-            status_code=404, detail=f"Person '{req.person_name}' not found."
-        )
-    LOGGER.debug(f"generate bio for person {req.person_name}")
-    bio = await generate_bio(entity.entity_id, db)
-    LOGGER.debug(f"here's the bio: {bio}")
-    db.close()
-    return {"name": req.person_name, "bio": bio}
 
 
 class CrawlRequest(BaseModel):
@@ -166,86 +104,79 @@ class CrawlRequest(BaseModel):
     required_text: str
 
 
-PROGRESS_STORE = {}
+@app.post("/person/bio")
+def get_person_bio(payload: PersonRequest, db: Session = Depends(get_db)):
+    entity = db.query(Entity).filter(Entity.name == payload.person_name).first()
+    if not entity:
+        raise HTTPException(status_code=404, detail="Person not found")
 
-
-@app.post("/start_crawl/")
-async def start_crawl(request: CrawlRequest):
-    crawl_id = request.url
-    max_pages = request.max_pages
-    url_pattern = request.url_pattern
-    required_text = request.required_text
-    existing_progress = PROGRESS_STORE.get(crawl_id)
-    LOGGER.debug(f"EXISTING PROGRESS: {existing_progress}")
-    if existing_progress and not existing_progress["completed"]:
-        return {
-            "crawl_id": crawl_id,
-            "status": "already in progress",
-        }
-
-    PROGRESS_STORE[crawl_id] = {
-        "processed": 0,
-        "fetched": 0,
-        "discovered": 0,
-        "completed": False,
+    return {
+        "name": entity.name,
+        "bio": entity.bio,
+        "url_list": entity.url_list or [],
     }
 
-    asyncio.create_task(
-        crawl_domain(
-            request.url,
-            url_pattern,
-            required_text,
-            max_pages,
-            PROGRESS_STORE,
-            crawl_id,
-        )
-    )
-    return {"crawl_id": crawl_id, "status": "started"}
+
+class SearchRequest(BaseModel):
+    query: str
 
 
-@app.post("/crawl_status")
-async def crawl_status(request: Request):
-    data = await request.json()
-    crawl_id = data.get("crawl_id")
-    status = PROGRESS_STORE.get(crawl_id)
-    if not status:
-        return {"error": "Invalid crawl ID"}
-    return status
+class SearchResponse(BaseModel):
+    query: str
+    matches: List[Dict[str, Any]]
+    notes: Optional[str] = None
 
 
-# add after PROGRESS_STORE definition
-@app.get("/active_crawls/")
-async def active_crawls():
-    return PROGRESS_STORE
+MAX_TOKENS_PER_CHUNK = 9000
 
 
-@app.post("/match_people")
-async def match_people(request: Request, db: Session = Depends(get_db)):
-    data = await request.json()
-    user_interest_text = data.get("user_interest_text")
-    result = await llm_match_people(user_interest_text, db)
-    return result
+@app.post("/people/search", response_model=SearchResponse)
+async def people_search(req: SearchRequest, db: Session = Depends(get_db)):
+    query = (req.query or "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Empty query")
 
+    # TODO: limit 10 for debugging
+    rows: List[Entity] = db.query(Entity).limit(10).all()
+    candidates: List[Tuple[str, str]] = [(r.name, r.bio or "") for r in rows if r.name]
 
-@app.post("/generate_all_bios")
-async def refresh_all_entity_analyses():
-    """
-    Ensure every entity has an up‑to‑date LLM analysis for its current snippet set.
-    """
-    db = SessionLocal()
-    entities = db.execute(select(Entity.entity_id, Entity.name)).all()
+    current_tokens = 0
+    current_chunk = []
+    chunks = []
 
-    total = len(entities)
+    for name, bio in candidates:
+        pair_text = f"Name: {name}\nBio:\n{bio}\n"
+        LOGGER.debug(pair_text)
+        tokens = len(_enc.encode(pair_text))  # using tiktoken encoder
 
-    for idx, (entity_id, entity_name) in enumerate(entities, 1):
-        LOGGER.debug(
-            f"Processing {entity_name} ({idx}/{total}) – {total - idx} remaining"
-        )
-        await generate_bio(entity_id, db)
+        if current_tokens + tokens > MAX_TOKENS_PER_CHUNK and current_chunk:
+            chunks.append(current_chunk)
+            current_chunk = []
+            current_tokens = 0
 
-    LOGGER.debug("ALL DONE refreshing summaries")
-    db.close()
-    return {"status": "success", "entities_processed": len(entities)}
+        current_chunk.append((name, bio))
+        current_tokens += tokens
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    # run chunks with bounded concurrency
+    sem = asyncio.Semaphore(8)
+
+    async def run_chunk(ch: List[Tuple[str, str]]) -> Optional[Dict[str, Any]]:
+        async with sem:
+            try:
+                LOGGER.info(f"running chunk that's {len(ch)} long")
+                return await _llm_chunk_match(query, ch)
+            except Exception as e:
+                LOGGER.warning(f"failure on {query} {ch} {e}")
+                return None
+
+    tasks = [run_chunk(ch) for ch in chunks]
+    payloads = await asyncio.gather(*tasks)
+
+    merged = _merge_matches([p for p in payloads if p], query)
+    return merged
 
 
 if __name__ == "__main__":

@@ -23,15 +23,15 @@
         </nav>
 
         <div class="container">
-            <h4 class="mb-3">Indexed Pages</h4>
-            <div id="urlListContainer" class="mt-4"></div>
+            <h4 class="mb-3"><a href="https://events.rdmobile.com/Sessions/Index/19095" target="_blank">ESA 2025</a> - CONVEI Academic Affinity Atlas</h4>
+            <div id="infoContainer" class="mt-4"></div>
 
             <h4 class="mt-5 mb-3">Find Interesting People</h4>
               <div id="MatchPeopleContainer">
                 <textarea id="UserInterestText"
                           class="form-control mb-2"
                           rows="3"
-                          placeholder="Describe your research interests here"></textarea>
+                          placeholder="Tell us your topics, keywords, frameworks, areas of interest, and/or anything else, and we’ll use ESA 2025's participant bios, abstracts, and session information to help you discover people whose work aligns with those ideas."></textarea>
 
                 <button id="MatchPeopleBtn" class="btn btn-primary">
                   <span id="MatchPeopleBtnText">Find Matches</span>
@@ -67,37 +67,145 @@
               (row.textContent = msg,
                row.className = `alert ${done?'alert-success':'alert-info'} py-1 mb-2`);
 
-            function loadUrls(){
-              fetchJSON('/urls/').then(({top_level_domains}) => {
-                const container = getEl('urlListContainer');
-                container.innerHTML = ''; // clear old content
+            function loadDbInfo(){
+              fetchJSON('/get_info/')
+                .then(({ dbInfo }) => {
+                  const container = getEl('infoContainer');
+                  container.innerHTML = '';
 
-                top_level_domains.forEach(({domain, url_count}) => {
-                  const div = document.createElement('div');
-                  div.className = 'alert alert-secondary py-1 mb-1';
-                  div.textContent = `${domain} → ${url_count} URL${url_count !== 1 ? 's' : ''}`;
-                  container.appendChild(div);
+                  const alertDiv = document.createElement('div');
+                  alertDiv.className = 'alert alert-info d-flex align-items-center';
+                  alertDiv.setAttribute('role', 'alert');
+
+                  const icon = document.createElement('i');
+                  icon.className = 'bi bi-info-circle-fill me-2'; // needs Bootstrap Icons
+                  alertDiv.appendChild(icon);
+
+                  const textSpan = document.createElement('span');
+                  textSpan.textContent = dbInfo || 'No database info available.';
+                  alertDiv.appendChild(textSpan);
+
+                  container.append(alertDiv);
+                })
+                .catch(err => {
+                  console.error('Error loading DB info:', err);
+                  const container = getEl('infoContainer');
+                  container.innerHTML = `
+                    <div class="alert alert-danger" role="alert">
+                      Failed to load database info
+                    </div>`;
                 });
-              });
             }
 
             async function loadEntities() {
               const c = getEl('EntitiesSelectContainer');
               if (!getEl('EntitiesSelect')) {
-                c.innerHTML = `<select id='EntitiesSelect' multiple style='width:100%'></select><div id='bioContainer' class='mt-4'></div>`;
-                const s = $('#EntitiesSelect').select2({ placeholder: 'Search and select Entities', allowClear: true, width: '100%' });
+                c.innerHTML = `
+                  <select id="EntitiesSelect" multiple style="width:100%"></select>
+                  <div id="bioContainer" class="mt-4"></div>
+                `;
+                const s = $('#EntitiesSelect').select2({
+                  placeholder: 'Search and select Entities',
+                  allowClear: true,
+                  width: '100%'
+                });
+
                 let prev = new Set();
+
                 s.on('change', async () => {
                   const cur = new Set(s.val() || []);
-                  prev.forEach(id => !cur.has(id) && getEl(`bio-${CSS.escape(id)}`)?.remove());
-                  await Promise.all([...cur].filter(id => !prev.has(id)).map(async id => {
-                    const div = Object.assign(document.createElement('div'), { id: `bio-${id}`, textContent: `Loading bio for ${id}...` });
-                    getEl('bioContainer').appendChild(div);
-                    try {
-                      const { name, bio } = await fetchJSON('/person/bio', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ person_name: id }) });
-                      div.innerHTML = `<strong>${name}:</strong> ${bio}<br>`;
-                    } catch {}
-                  }));
+
+                  // remove cards for items that were deselected
+                  prev.forEach(id => {
+                    if (!cur.has(id)) {
+                      const el = getEl(`bio-${id}`);
+                      if (el) el.remove();
+                    }
+                  });
+
+                  // add cards for newly-selected items
+                  const toAdd = [...cur].filter(id => !prev.has(id));
+                  await Promise.all(
+                    toAdd.map(async id => {
+                      const container = getEl('bioContainer');
+
+                      // placeholder card
+                      const card = document.createElement('div');
+                      card.id = `bio-${id}`;
+                      card.className = 'alert alert-primary p-3 mb-3';
+                      card.innerHTML = `
+                        <div class="placeholder-glow">
+                          <span class="placeholder col-6"></span>
+                          <span class="placeholder col-12 mt-2"></span>
+                          <span class="placeholder col-8 mt-2"></span>
+                        </div>
+                      `;
+                      container.appendChild(card);
+
+                      try {
+                        const { name, bio, url_list } = await fetchJSON('/person/bio', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ person_name: id })
+                        });
+
+                        // rebuild pretty card
+                        card.innerHTML = '';
+                        const title = document.createElement('h5');
+                        title.className = 'fw-bold mb-2';
+                        title.textContent = name;
+
+                        const bioEl = document.createElement('div');
+                        bioEl.className = 'mb-2';
+
+                        // preserve line breaks into paragraphs
+                        const parts = String(bio || '').split(/\n{2,}|\r?\n/).filter(Boolean);
+                        if (parts.length === 0) {
+                          const p = document.createElement('p');
+                          p.className = 'mb-2';
+                          p.textContent = 'Bio not available.';
+                          bioEl.appendChild(p);
+                        } else {
+                          parts.forEach(txt => {
+                            const p = document.createElement('p');
+                            p.className = 'mb-2';
+                            p.textContent = txt.trim();
+                            bioEl.appendChild(p);
+                          });
+                        }
+
+                        card.appendChild(title);
+                        card.appendChild(bioEl);
+
+                        if (Array.isArray(url_list) && url_list.length) {
+                          const listWrap = document.createElement('div');
+                          listWrap.className = 'mt-2';
+
+                          const ul = document.createElement('ul');
+                          ul.className = 'small mb-0 ps-3';
+                          url_list.forEach(u => {
+                            if (!u) return;
+                            const li = document.createElement('li');
+                            const a = document.createElement('a');
+                            a.href = u;
+                            a.target = '_blank';
+                            a.rel = 'noopener noreferrer';
+                            a.textContent = u;
+                            li.appendChild(a);
+                            ul.appendChild(li);
+                          });
+
+                          listWrap.appendChild(ul);
+                          card.appendChild(listWrap);
+                        }
+                      } catch (e) {
+                        console.error('Error fetching bio:', e);
+                        card.className = 'alert alert-danger p-3 mb-3';
+                        card.textContent = `Failed to load bio for ${id}`;
+                      }
+                    })
+                  );
+
                   prev = cur;
                 });
               }
@@ -108,11 +216,17 @@
                 const existing = new Set([...sel.options].map(o => o.value));
                 entities.filter(e => !existing.has(e)).forEach(e => sel.add(new Option(e, e)));
                 $(sel).trigger('change.select2');
-              } catch {
-                c.textContent = 'Failed to load entities.';
+              } catch (e) {
+                console.error('Failed to load entities:', e);
+                const ctn = getEl('EntitiesSelectContainer');
+                ctn.innerHTML = `
+                  <div class="alert alert-danger" role="alert">
+                    Failed to load entities.
+                  </div>`;
               }
             }
 
+            // Optional: reuse this if you need a direct helper elsewhere
             async function fetchBio(name) {
               try {
                 const res = await fetchJSON('/person/bio', {
@@ -170,25 +284,21 @@
 
               // UI: disable & spin
               btn.disabled = true;
-              txt.textContent = 'Skipping bio generation...';
+              txt.textContent = 'Matching...';
               spin.classList.remove('d-none');
 
               try {
-                // Update UI status to matching
-                txt.textContent = 'Matching...';
-
-                // Now fetch matches
-                const matches = await fetchJSON('/match_people', {
+                const res = await fetchJSON('/people/search', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ user_interest_text: input })
+                  body: JSON.stringify({ query: input })
                 });
 
-                showMatches(matches || []);
+                renderMatches(res);
 
               } catch (e) {
-                getEl('MatchResults').textContent = 'Error fetching matches.';
                 console.error(e);
+                renderMatches({ query: input, matches: [], notes: 'Error fetching matches.' });
               } finally {
                 btn.disabled = false;
                 txt.textContent = 'Find Matches';
@@ -196,8 +306,147 @@
               }
             });
 
+            // ---- Rendering ----
+
+            function renderMatches(payload) {
+              const target = getEl('MatchResults');
+              target.innerHTML = '';
+
+              if (!payload || !Array.isArray(payload.matches) || payload.matches.length === 0) {
+                target.innerHTML = `
+                  <div class="alert alert-warning" role="alert">
+                    No matches found for this query.
+                  </div>
+                `;
+                if (payload?.notes) {
+                  const notes = document.createElement('div');
+                  notes.className = 'text-muted small mt-1';
+                  notes.textContent = payload.notes;
+                  target.appendChild(notes);
+                }
+                return;
+              }
+
+              // Optional header showing the query
+              const hdr = document.createElement('div');
+              hdr.className = 'mb-3';
+              hdr.innerHTML = `
+                <div class="fw-semibold">Query</div>
+                <div class="text-muted">${escapeHtml(payload.query || '')}</div>
+              `;
+              target.appendChild(hdr);
+
+              // Results list
+              const list = document.createElement('div');
+              list.className = 'd-flex flex-column gap-3';
+              target.appendChild(list);
+
+              payload.matches.forEach(m => {
+                const card = document.createElement('div');
+                card.className = 'card shadow-sm';
+
+                const body = document.createElement('div');
+                body.className = 'card-body';
+
+                // Title row: name + badges
+                const title = document.createElement('div');
+                title.className = 'd-flex align-items-start justify-content-between flex-wrap gap-2';
+
+                const nameEl = document.createElement('h5');
+                nameEl.className = 'card-title mb-0';
+                nameEl.textContent = m.name || 'Unknown';
+                title.appendChild(nameEl);
+
+                const badges = document.createElement('div');
+                badges.className = 'd-flex gap-2';
+
+                const relBadge = document.createElement('span');
+                relBadge.className = `badge ${relationBadgeClass(m.relation)}`;
+                relBadge.textContent = (m.relation || 'adjacent').toLowerCase();
+                badges.appendChild(relBadge);
+
+                const confBadge = document.createElement('span');
+                confBadge.className = `badge ${confidenceBadgeClass(m.confidence)}`;
+                confBadge.textContent = (m.confidence || 'medium').toLowerCase();
+                badges.appendChild(confBadge);
+
+                title.appendChild(badges);
+                body.appendChild(title);
+
+                // Why
+                if (m.why) {
+                  const why = document.createElement('p');
+                  why.className = 'mt-2 mb-2';
+                  why.textContent = m.why;
+                  body.appendChild(why);
+                }
+
+                // Snippet
+                if (m.snippet) {
+                  const sn = document.createElement('blockquote');
+                  sn.className = 'blockquote small mb-2';
+                  sn.textContent = m.snippet;
+                  body.appendChild(sn);
+                }
+
+                // Matched signals
+                if (Array.isArray(m.matched_signals) && m.matched_signals.length) {
+                  const sigWrap = document.createElement('div');
+                  sigWrap.className = 'small text-muted';
+                  const ul = document.createElement('ul');
+                  ul.className = 'mb-0 ps-3';
+                  m.matched_signals.forEach(s => {
+                    if (!s) return;
+                    const li = document.createElement('li');
+                    li.textContent = s;
+                    ul.appendChild(li);
+                  });
+                  sigWrap.appendChild(ul);
+                  body.appendChild(sigWrap);
+                }
+
+                card.appendChild(body);
+                list.appendChild(card);
+              });
+
+              // Notes (optional)
+              if (payload.notes) {
+                const notes = document.createElement('div');
+                notes.className = 'text-muted small mt-2';
+                notes.textContent = payload.notes;
+                target.appendChild(notes);
+              }
+            }
+
+            // ---- Helpers ----
+
+            function relationBadgeClass(rel) {
+              const r = String(rel || '').toLowerCase();
+              if (r === 'direct') return 'text-bg-primary';
+              if (r === 'adjacent') return 'text-bg-secondary';
+              if (r === 'emerging') return 'text-bg-warning';
+              return 'text-bg-light';
+            }
+
+            function confidenceBadgeClass(c) {
+              const v = String(c || '').toLowerCase();
+              if (v === 'high') return 'text-bg-success';
+              if (v === 'medium') return 'text-bg-info';
+              if (v === 'low') return 'text-bg-light';
+              return 'text-bg-light';
+            }
+
+            function escapeHtml(str) {
+              return String(str)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#039;');
+            }
+
             document.addEventListener('DOMContentLoaded',()=>{
-              loadUrls();
+              loadDbInfo();
               loadEntities();
             });
             </script>
