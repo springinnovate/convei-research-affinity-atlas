@@ -1,5 +1,6 @@
 """Entrypoint for CONVEI research affinity atlas app."""
 
+import os
 from urllib.parse import urlparse
 from collections import Counter
 import asyncio
@@ -20,9 +21,8 @@ from sqlalchemy import select
 
 from parser import fetch_page_content
 from database import SessionLocal, init_db
-from models import WebpageContent, Entity
-from crawler import crawl_domain
-from llm_analyzer import generate_bio, llm_match_people
+from models import Entity
+from llm_analyzer import generate_bios
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -45,8 +45,6 @@ app.mount(
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.auto_reload = True
 
-init_db()
-
 
 def get_db():
     db = SessionLocal()
@@ -54,6 +52,16 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+@app.on_event("startup")
+async def startup_event():
+    init_db()
+    input_json_path = os.environ.get("INPUT_JSON_PATH", None)
+    if input_json_path is None:
+        raise ValueError(f"undefined INPUT_JSON_PATH env variable")
+    db = SessionLocal()
+    await generate_bios(input_json_path, db)
 
 
 @app.get("/")

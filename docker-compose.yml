@@ -1,9 +1,7 @@
 services:
   app:
-    container_name: craa               # same image name you used
-    build:
-      context: ./app                   # Dockerfile sits in ./app
-      dockerfile: Dockerfile
+    hostname: craa
+    build: app
     volumes:
       - ./app/data:/app/data           # data volume
       - ./app:/app             # source code hot-reloaded
