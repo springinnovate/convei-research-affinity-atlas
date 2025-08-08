@@ -273,34 +273,70 @@
               }
             }
 
+            let matchProgressTimer = null;
+
             getEl('MatchPeopleBtn').addEventListener('click', async () => {
               const btn  = getEl('MatchPeopleBtn'),
                     txt  = getEl('MatchPeopleBtnText'),
                     spin = getEl('MatchPeopleBtnSpinner'),
                     box  = getEl('UserInterestText'),
-                    input = box.value.trim();
+                    input = (box.value || '').trim();
 
               if (!input) return;
 
-              // UI: disable & spin
+              // Disable UI while running
               btn.disabled = true;
-              txt.textContent = 'Matching...';
+              box.disabled = true; // disable text input
+              txt.textContent = 'Starting...';
               spin.classList.remove('d-none');
 
               try {
-                const res = await fetchJSON('/people/search', {
+                // 1) start job
+                const { job_id } = await fetchJSON('/people/search/start', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ query: input })
                 });
 
-                renderMatches(res);
+                // 2) poll progress
+                await new Promise((resolve, reject) => {
+                  matchProgressTimer = setInterval(async () => {
+                    try {
+                      const { done, total, status, message } = await fetchJSON(`/people/search/progress?job_id=${encodeURIComponent(job_id)}`);
+                      if (total > 0) {
+                        txt.textContent = `Matching... (${done} of ${total} chunks done)`;
+                      } else {
+                        txt.textContent = 'Matching...';
+                      }
+                      if (status === 'error') {
+                        clearInterval(matchProgressTimer);
+                        matchProgressTimer = null;
+                        reject(new Error(message || 'Search failed'));
+                      }
+                      if (status === 'done') {
+                        clearInterval(matchProgressTimer);
+                        matchProgressTimer = null;
+                        resolve();
+                      }
+                    } catch (e) {
+                      clearInterval(matchProgressTimer);
+                      matchProgressTimer = null;
+                      reject(e);
+                    }
+                  }, 1000);
+                });
+
+                // 3) fetch result
+                const result = await fetchJSON(`/people/search/result?job_id=${encodeURIComponent(job_id)}`);
+                renderMatches(result);
 
               } catch (e) {
-                console.error(e);
+                console.error('Matching error:', e);
                 renderMatches({ query: input, matches: [], notes: 'Error fetching matches.' });
               } finally {
+                // Re-enable UI
                 btn.disabled = false;
+                box.disabled = false;
                 txt.textContent = 'Find Matches';
                 spin.classList.add('d-none');
               }
@@ -341,70 +377,34 @@
               list.className = 'd-flex flex-column gap-3';
               target.appendChild(list);
 
-              payload.matches.forEach(m => {
+              payload.matches.forEach((m, idx) => {
                 const card = document.createElement('div');
                 card.className = 'card shadow-sm';
 
                 const body = document.createElement('div');
                 body.className = 'card-body';
 
-                // Title row: name + badges
+                // Title row: index + name + badges
                 const title = document.createElement('div');
                 title.className = 'd-flex align-items-start justify-content-between flex-wrap gap-2';
 
                 const nameEl = document.createElement('h5');
-                nameEl.className = 'card-title mb-0 person-name';
-                nameEl.textContent = m.name || 'Unknown';
+                nameEl.className = 'card-title mb-0 fw-bold person-name';
+                nameEl.textContent = `${idx + 1}. ${m.name || 'Unknown'}`; // <-- number added here
                 nameEl.style.cursor = 'pointer';
                 nameEl.dataset.personName = m.name || 'Unknown';
 
-                // Mouse enter → fetch bio and show tooltip div
-                nameEl.addEventListener('mouseenter', async (e) => {
-                  const target = e.currentTarget;
-                  const personName = target.dataset.personName;
-                  if (!personName) return;
-
-                  // Create tooltip div
-                  let tooltip = document.createElement('div');
-                  tooltip.className = 'custom-bio-tooltip card p-2 shadow';
-                  tooltip.style.position = 'absolute';
-                  tooltip.style.zIndex = 9999;
-                  tooltip.style.maxWidth = '300px';
-                  tooltip.style.pointerEvents = 'none';
-                  tooltip.innerHTML = '<em>Loading bio...</em>';
-                  document.body.appendChild(tooltip);
-
-                  // Position it near the name
-                  const rect = target.getBoundingClientRect();
-                  tooltip.style.top = `${rect.bottom + window.scrollY + 5}px`;
-                  tooltip.style.left = `${rect.left + window.scrollX}px`;
-
-                  try {
-                    const { name, bio } = await fetchJSON('/person/bio', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ person_name: personName })
-                    });
-                    tooltip.innerHTML = `
-                      <strong>${escapeHtml(name)}</strong>
-                      <div class="small mt-1">${escapeHtml(bio)}</div>
-                    `;
-                  } catch (err) {
-                    tooltip.innerHTML = '<span class="text-danger">Error loading bio.</span>';
-                  }
-
-                  // Store the tooltip element on the target so we can remove it later
-                  target._bioTooltip = tooltip;
+                // Optional: hover styles for mouseover
+                nameEl.addEventListener('mouseenter', () => {
+                  nameEl.style.textDecoration = 'underline';
+                  nameEl.style.color = '#0d6efd';
+                });
+                nameEl.addEventListener('mouseleave', () => {
+                  nameEl.style.textDecoration = '';
+                  nameEl.style.color = '';
                 });
 
-                // Mouse leave → remove tooltip div
-                nameEl.addEventListener('mouseleave', (e) => {
-                  const target = e.currentTarget;
-                  if (target._bioTooltip) {
-                    target._bioTooltip.remove();
-                    target._bioTooltip = null;
-                  }
-                });
+                // Your existing hover-tooltips setup for bios could go here...
 
                 title.appendChild(nameEl);
 

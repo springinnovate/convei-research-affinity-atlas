@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import asyncio
 import logging
 import sys
+import uuid
 
 from pathlib import Path
 import uvicorn
@@ -16,6 +17,8 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi import HTTPException
 from pydantic import BaseModel
+from fastapi import Query
+
 
 from database import SessionLocal, init_db
 from models import Entity, ProcessedFile
@@ -39,6 +42,30 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.auto_reload = True
+
+PROGRESS_STORE: Dict[str, Dict[str, Any]] = {}
+RESULT_STORE: Dict[str, Dict[str, Any]] = {}
+STORE_LOCK = asyncio.Lock()
+
+TUPLES_PER_CHUNK = 250  # simple tuple-based chunking
+
+
+class StartRequest(BaseModel):
+    query: str
+
+
+class ProgressResponse(BaseModel):
+    job_id: str
+    done: int
+    total: int
+    status: str  # running|done|error
+    message: Optional[str] = None
+
+
+class ResultResponse(BaseModel):
+    query: str
+    matches: List[Dict[str, Any]]
+    notes: Optional[str] = None
 
 
 def get_db():
@@ -136,8 +163,9 @@ async def people_search(req: SearchRequest, db: Session = Depends(get_db)):
     if not query:
         raise HTTPException(status_code=400, detail="Empty query")
 
+    rows: List[Entity] = db.query(Entity).all()
     # TODO: limit 10 for debugging
-    rows: List[Entity] = db.query(Entity).limit(10).all()
+    # rows: List[Entity] = db.query(Entity).limit(10).all()
     candidates: List[Tuple[str, str]] = [(r.name, r.bio or "") for r in rows if r.name]
 
     current_tokens = 0
@@ -177,6 +205,122 @@ async def people_search(req: SearchRequest, db: Session = Depends(get_db)):
 
     merged = _merge_matches([p for p in payloads if p], query)
     return merged
+
+
+async def _run_search_job(job_id: str, query: str):
+    # each job uses its own DB session
+    db = SessionLocal()
+    try:
+        rows: List[Entity] = db.query(Entity).order_by(Entity.name).all()
+        candidates: List[Tuple[str, str]] = [
+            (r.name, r.bio or "") for r in rows if r.name
+        ]
+
+        # build chunks
+        chunks: List[List[Tuple[str, str]]] = []
+        buf: List[Tuple[str, str]] = []
+        for pair in candidates:
+            buf.append(pair)
+            if len(buf) >= TUPLES_PER_CHUNK:
+                chunks.append(buf)
+                buf = []
+        if buf:
+            chunks.append(buf)
+
+        async with STORE_LOCK:
+            PROGRESS_STORE[job_id] = {
+                "job_id": job_id,
+                "done": 0,
+                "total": len(chunks),
+                "status": "running",
+                "message": None,
+            }
+
+        sem = asyncio.Semaphore(8)
+
+        async def run_chunk(ch):
+            async with sem:
+                try:
+                    payload = await _llm_chunk_match(query, ch)
+                except Exception as e:
+                    LOGGER.exception(f"error on {ch}")
+                    payload = None
+                finally:
+                    async with STORE_LOCK:
+                        st = PROGRESS_STORE.get(job_id)
+                        if st:
+                            st["done"] = min(st["done"] + 1, st["total"])
+                return payload
+
+        payloads = await asyncio.gather(*[run_chunk(ch) for ch in chunks])
+        merged = _merge_matches([p for p in payloads if p], query)
+
+        async with STORE_LOCK:
+            RESULT_STORE[job_id] = merged
+            st = PROGRESS_STORE.get(job_id)
+            if st:
+                st["status"] = "done"
+                st["message"] = None
+
+    except Exception as e:
+        async with STORE_LOCK:
+            st = PROGRESS_STORE.setdefault(
+                job_id,
+                {
+                    "job_id": job_id,
+                    "done": 0,
+                    "total": 0,
+                    "status": "error",
+                    "message": str(e),
+                },
+            )
+            st["status"] = "error"
+            st["message"] = str(e)
+    finally:
+        db.close()
+
+
+@app.post("/people/search/start")
+async def start_people_search(req: StartRequest):
+    q = (req.query or "").strip()
+    if not q:
+        raise HTTPException(status_code=400, detail="Empty query")
+    job_id = uuid.uuid4().hex
+    async with STORE_LOCK:
+        PROGRESS_STORE[job_id] = {
+            "job_id": job_id,
+            "done": 0,
+            "total": 0,
+            "status": "running",
+            "message": None,
+        }
+    asyncio.create_task(_run_search_job(job_id, q))
+    return {"job_id": job_id}
+
+
+@app.get("/people/search/progress", response_model=ProgressResponse)
+async def people_search_progress(job_id: str = Query(...)):
+    async with STORE_LOCK:
+        st = PROGRESS_STORE.get(job_id)
+        if not st:
+            raise HTTPException(status_code=404, detail="Unknown job_id")
+        return st
+
+
+@app.get("/people/search/result", response_model=ResultResponse)
+async def people_search_result(job_id: str = Query(...)):
+    async with STORE_LOCK:
+        res = RESULT_STORE.get(job_id)
+        st = PROGRESS_STORE.get(job_id)
+        if not st:
+            raise HTTPException(status_code=404, detail="Unknown job_id")
+        if st["status"] == "error":
+            raise HTTPException(
+                status_code=500, detail=st.get("message") or "Search failed"
+            )
+        if st["status"] != "done" or not res:
+            raise HTTPException(status_code=202, detail="Not ready")
+        return res
 
 
 if __name__ == "__main__":

@@ -22,7 +22,6 @@ from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from tiktoken import encoding_for_model, get_encoding
-from tqdm.asyncio import tqdm_asyncio
 from tqdm import tqdm
 
 from models import Entity, ProcessedFile
@@ -32,7 +31,7 @@ BIO_GEN_SEMAPHORE = asyncio.Semaphore(50)
 _TOKENS_USED_LAST_MINUTE = []
 _REQUESTS_LAST_MINUTE = []
 
-OPENAI_MODEL = "gpt-5"
+OPENAI_MODEL = "gpt-5-nano"
 try:
     _enc = encoding_for_model(OPENAI_MODEL)
 except KeyError:
