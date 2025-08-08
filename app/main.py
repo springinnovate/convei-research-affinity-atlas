@@ -22,7 +22,12 @@ from fastapi import Query
 
 from database import SessionLocal, init_db
 from models import Entity, ProcessedFile
-from llm_analyzer import generate_bios, _llm_chunk_match, _merge_matches, _enc
+from llm_analyzer import (
+    generate_bios,
+    _cached_llm_chunk_match,
+    _merge_matches,
+    _enc,
+)
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -195,7 +200,7 @@ async def people_search(req: SearchRequest, db: Session = Depends(get_db)):
         async with sem:
             try:
                 LOGGER.info(f"running chunk that's {len(ch)} long")
-                return await _llm_chunk_match(query, ch)
+                return await _cached_llm_chunk_match(query, ch)
             except Exception as e:
                 LOGGER.warning(f"failure on {query} {ch} {e}")
                 return None
@@ -241,7 +246,7 @@ async def _run_search_job(job_id: str, query: str):
         async def run_chunk(ch):
             async with sem:
                 try:
-                    payload = await _llm_chunk_match(query, ch)
+                    payload = await _cached_llm_chunk_match(db, query, ch)
                 except Exception as e:
                     LOGGER.exception(f"error on {ch}")
                     payload = None

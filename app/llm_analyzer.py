@@ -25,7 +25,14 @@ from tiktoken import encoding_for_model, get_encoding
 from tqdm import tqdm
 
 from models import Entity, ProcessedFile
-
+from cache_utils import (
+    SYSTEM_PROMPT_VERSION,
+    chunk_fingerprint,
+    query_fingerprint,
+    make_cache_key,
+    cache_get,
+    cache_put,
+)
 
 BIO_GEN_SEMAPHORE = asyncio.Semaphore(50)
 _TOKENS_USED_LAST_MINUTE = []
@@ -293,6 +300,28 @@ def _format_chunk_user_content(query: str, candidates: List[Tuple[str, str]]) ->
         parts.append(bio if bio else "(no bio)")
         parts.append("=== CANDIDATE END ===")
     return "\n".join(parts)
+
+
+async def _cached_llm_chunk_match(
+    db: Session, query: str, chunk: List[Tuple[str, str]]
+) -> Dict[str, Any]:
+    qh = query_fingerprint(query)
+    ch = chunk_fingerprint(chunk)
+    key = make_cache_key(OPENAI_MODEL, SYSTEM_PROMPT_VERSION, qh, ch)
+    hit = cache_get(db, key)
+    if hit is not None:
+        return hit
+    payload = await _llm_chunk_match(query, chunk)
+    cache_put(
+        db,
+        cache_key=key,
+        query_hash=qh,
+        chunk_hash=ch,
+        model=OPENAI_MODEL,
+        system_version=SYSTEM_PROMPT_VERSION,
+        response_json=payload,
+    )
+    return payload
 
 
 async def _llm_chunk_match(query: str, chunk: List[Tuple[str, str]]) -> Dict[str, Any]:
