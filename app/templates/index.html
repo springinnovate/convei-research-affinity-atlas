@@ -342,7 +342,112 @@
               }
             });
 
-            // ---- Rendering ----
+            const bioCache = new Map(); // name -> {name, bio}
+
+            function attachBioHover(nameEl, personName) {
+              if (!personName || personName === 'Unknown') return;
+
+              let tooltip = null;
+              let hideTimer = null;
+
+              const showTooltip = async () => {
+                // create tooltip if needed
+                if (!tooltip) {
+                  tooltip = document.createElement('div');
+                  tooltip.className = 'custom-bio-tooltip alert alert-info shadow p-3';
+                  tooltip.style.position = 'absolute';
+                  tooltip.style.zIndex = 9999;
+                  tooltip.style.width = '600px';
+                  tooltip.style.maxWidth = '95vw';
+                  tooltip.style.maxHeight = '60vh';
+                  tooltip.style.overflow = 'auto';
+                  tooltip.style.pointerEvents = 'auto'; // allow hover inside tooltip
+                  tooltip.innerHTML = '<em>Loading bio...</em>';
+                  document.body.appendChild(tooltip);
+
+                  // Allow staying open when hovering tooltip
+                  tooltip.addEventListener('mouseenter', () => {
+                    if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+                  });
+                  tooltip.addEventListener('mouseleave', () => {
+                    scheduleHide();
+                  });
+                }
+
+                // position near name
+                const rect = nameEl.getBoundingClientRect();
+                tooltip.style.top = `${rect.bottom + window.scrollY + 6}px`;
+                tooltip.style.left = `${rect.left + window.scrollX}px`;
+
+                // populate content (from cache or fetch)
+                try {
+                  let data = bioCache.get(personName);
+                  if (!data) {
+                    data = await fetchJSON('/person/bio', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ person_name: personName })
+                    });
+                    bioCache.set(personName, data);
+                  }
+
+                  const { name, bio } = data || {};
+                  tooltip.innerHTML = '';
+
+                  const title = document.createElement('h5');
+                  title.className = 'fw-bold mb-2';
+                  title.textContent = name || personName;
+                  tooltip.appendChild(title);
+
+                  const bioEl = document.createElement('div');
+                  bioEl.className = 'mb-0';
+
+                  const parts = String(bio || '').split(/\n{2,}|\r?\n/).filter(Boolean);
+                  if (parts.length === 0) {
+                    const p = document.createElement('p');
+                    p.className = 'mb-0';
+                    p.textContent = 'Bio not available.';
+                    bioEl.appendChild(p);
+                  } else {
+                    parts.forEach(txt => {
+                      const p = document.createElement('p');
+                      p.className = 'mb-2';
+                      p.textContent = txt.trim();
+                      bioEl.appendChild(p);
+                    });
+                  }
+                  tooltip.appendChild(bioEl);
+                } catch (err) {
+                  console.error('Tooltip bio fetch error:', err);
+                  tooltip.innerHTML = '<span class="text-danger">Error loading bio.</span>';
+                }
+              };
+
+              const scheduleHide = () => {
+                if (hideTimer) clearTimeout(hideTimer);
+                hideTimer = setTimeout(() => {
+                  if (tooltip) {
+                    tooltip.remove();
+                    tooltip = null;
+                  }
+                }, 200); // small delay so user can move from name to tooltip
+              };
+
+              // Hover behavior on the NAME (not the number prefix)
+              nameEl.addEventListener('mouseenter', async () => {
+                nameEl.style.textDecoration = 'underline';
+                nameEl.style.color = '#0d6efd';
+                if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+                await showTooltip();
+              });
+
+              nameEl.addEventListener('mouseleave', () => {
+                nameEl.style.textDecoration = '';
+                nameEl.style.color = '';
+                scheduleHide();
+              });
+            }
+
 
             function renderMatches(payload) {
               const target = getEl('MatchResults');
@@ -388,37 +493,27 @@
                 const title = document.createElement('div');
                 title.className = 'd-flex align-items-start justify-content-between flex-wrap gap-2';
 
+                // inside renderMatches loop
                 const nameEl = document.createElement('h5');
                 nameEl.className = 'card-title mb-0 fw-bold person-name';
                 nameEl.style.cursor = 'pointer';
 
-                // Store the raw name for tooltip fetch
-                nameEl.dataset.personName = m.name || 'Unknown';
-
-                // Number span
+                // Number span (muted)
                 const numSpan = document.createElement('span');
                 numSpan.className = 'text-muted me-2';
                 numSpan.textContent = `${idx + 1}.`;
 
-                // Name text span (for display)
+                // Name span (display only)
                 const textSpan = document.createElement('span');
                 textSpan.textContent = m.name || 'Unknown';
 
-                // Put them together
                 nameEl.appendChild(numSpan);
                 nameEl.appendChild(textSpan);
 
-                // Optional: hover styles
-                nameEl.addEventListener('mouseenter', () => {
-                  textSpan.style.textDecoration = 'underline';
-                  textSpan.style.color = '#0d6efd';
-                });
-                nameEl.addEventListener('mouseleave', () => {
-                  textSpan.style.textDecoration = '';
-                  textSpan.style.color = '';
-                });
-
                 title.appendChild(nameEl);
+
+                // Attach hover with the raw name (no number)
+                attachBioHover(textSpan, m.name || 'Unknown');
 
                 const badges = document.createElement('div');
                 badges.className = 'd-flex gap-2';
