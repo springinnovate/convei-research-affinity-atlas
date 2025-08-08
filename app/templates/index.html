@@ -353,8 +353,59 @@
                 title.className = 'd-flex align-items-start justify-content-between flex-wrap gap-2';
 
                 const nameEl = document.createElement('h5');
-                nameEl.className = 'card-title mb-0';
+                nameEl.className = 'card-title mb-0 person-name';
                 nameEl.textContent = m.name || 'Unknown';
+                nameEl.style.cursor = 'pointer';
+                nameEl.dataset.personName = m.name || 'Unknown';
+
+                // Mouse enter → fetch bio and show tooltip div
+                nameEl.addEventListener('mouseenter', async (e) => {
+                  const target = e.currentTarget;
+                  const personName = target.dataset.personName;
+                  if (!personName) return;
+
+                  // Create tooltip div
+                  let tooltip = document.createElement('div');
+                  tooltip.className = 'custom-bio-tooltip card p-2 shadow';
+                  tooltip.style.position = 'absolute';
+                  tooltip.style.zIndex = 9999;
+                  tooltip.style.maxWidth = '300px';
+                  tooltip.style.pointerEvents = 'none';
+                  tooltip.innerHTML = '<em>Loading bio...</em>';
+                  document.body.appendChild(tooltip);
+
+                  // Position it near the name
+                  const rect = target.getBoundingClientRect();
+                  tooltip.style.top = `${rect.bottom + window.scrollY + 5}px`;
+                  tooltip.style.left = `${rect.left + window.scrollX}px`;
+
+                  try {
+                    const { name, bio } = await fetchJSON('/person/bio', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ person_name: personName })
+                    });
+                    tooltip.innerHTML = `
+                      <strong>${escapeHtml(name)}</strong>
+                      <div class="small mt-1">${escapeHtml(bio)}</div>
+                    `;
+                  } catch (err) {
+                    tooltip.innerHTML = '<span class="text-danger">Error loading bio.</span>';
+                  }
+
+                  // Store the tooltip element on the target so we can remove it later
+                  target._bioTooltip = tooltip;
+                });
+
+                // Mouse leave → remove tooltip div
+                nameEl.addEventListener('mouseleave', (e) => {
+                  const target = e.currentTarget;
+                  if (target._bioTooltip) {
+                    target._bioTooltip.remove();
+                    target._bioTooltip = null;
+                  }
+                });
+
                 title.appendChild(nameEl);
 
                 const badges = document.createElement('div');
