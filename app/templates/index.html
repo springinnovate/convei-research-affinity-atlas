@@ -304,7 +304,7 @@
                     try {
                       const { done, total, status, message } = await fetchJSON(`/people/search/progress?job_id=${encodeURIComponent(job_id)}`);
                       if (total > 0) {
-                        txt.textContent = `Matching... (${done} of ${total} chunks done)`;
+                        txt.textContent = `Matching... (${done} of ${total} chunks done) -- Do not navigate away from the page`;
                       } else {
                         txt.textContent = 'Matching...';
                       }
@@ -390,21 +390,33 @@
 
                 const nameEl = document.createElement('h5');
                 nameEl.className = 'card-title mb-0 fw-bold person-name';
-                nameEl.textContent = `${idx + 1}. ${m.name || 'Unknown'}`; // <-- number added here
                 nameEl.style.cursor = 'pointer';
+
+                // Store the raw name for tooltip fetch
                 nameEl.dataset.personName = m.name || 'Unknown';
 
-                // Optional: hover styles for mouseover
+                // Number span
+                const numSpan = document.createElement('span');
+                numSpan.className = 'text-muted me-2';
+                numSpan.textContent = `${idx + 1}.`;
+
+                // Name text span (for display)
+                const textSpan = document.createElement('span');
+                textSpan.textContent = m.name || 'Unknown';
+
+                // Put them together
+                nameEl.appendChild(numSpan);
+                nameEl.appendChild(textSpan);
+
+                // Optional: hover styles
                 nameEl.addEventListener('mouseenter', () => {
-                  nameEl.style.textDecoration = 'underline';
-                  nameEl.style.color = '#0d6efd';
+                  textSpan.style.textDecoration = 'underline';
+                  textSpan.style.color = '#0d6efd';
                 });
                 nameEl.addEventListener('mouseleave', () => {
-                  nameEl.style.textDecoration = '';
-                  nameEl.style.color = '';
+                  textSpan.style.textDecoration = '';
+                  textSpan.style.color = '';
                 });
-
-                // Your existing hover-tooltips setup for bios could go here...
 
                 title.appendChild(nameEl);
 
