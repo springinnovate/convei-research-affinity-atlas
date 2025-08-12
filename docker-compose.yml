@@ -1,35 +1,47 @@
 services:
-  app:
-    hostname: craa
-    build: app
+  esa2025:
+    hostname: esa2025
+    build: ./app_esa2025
     volumes:
-      - ./app/data:/app/data           # data volume
-      - ./app:/app             # source code hot-reloaded
-    ports:
-      - '8000:8000'                    # localhost dev access
+      - ./app_esa2025/data:/app/data
+      - ./app_esa2025:/app
     environment:
       PYTHONUNBUFFERED: '1'
     labels:
       - 'traefik.enable=true'
-      - 'traefik.http.routers.craa.rule=Host(`craa.ecoshard.org`)'
-      - 'traefik.http.routers.craa.entrypoints=websecure'
-      - 'traefik.http.routers.craa.tls=true'
-      - 'traefik.http.routers.craa.tls.certresolver=letsencrypt'
-      - 'traefik.http.services.craa.loadbalancer.server.port=8000'
+      - 'traefik.http.routers.esa2025.rule=Host(`esa2025.craa.ecoshard.org`)'
+      - 'traefik.http.routers.esa2025.entrypoints=websecure'
+      - 'traefik.http.routers.esa2025.tls=true'
+      - 'traefik.http.routers.esa2025.tls.certresolver=letsencrypt'
+      - 'traefik.http.services.esa2025.loadbalancer.server.port=8000'
     depends_on:
       - reverse-proxy
     networks:
       - web
     tty: true
-    stdin_open: true                   # -it equivalent
-    deploy:                            # optional resource guards
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
-        reservations:
-          cpus: '2'
-          memory: 1G
+    stdin_open: true
+
+  ipbes-selection:
+    hostname: ipbes-selection
+    build: ./app_ipbes_selection
+    volumes:
+      - ./ipbes_selection/data:/app/data
+      - ./ipbes_selection:/app
+    environment:
+      PYTHONUNBUFFERED: '1'
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.http.routers.ipbes.rule=Host(`ipbes-selection.craa.ecoshard.org`)'
+      - 'traefik.http.routers.ipbes.entrypoints=websecure'
+      - 'traefik.http.routers.ipbes.tls=true'
+      - 'traefik.http.routers.ipbes.tls.certresolver=letsencrypt'
+      - 'traefik.http.services.ipbes.loadbalancer.server.port=8000'
+    depends_on:
+      - reverse-proxy
+    networks:
+      - web
+    tty: true
+    stdin_open: true
 
   reverse-proxy:
     image: traefik:v2.11
