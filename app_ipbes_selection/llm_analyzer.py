@@ -49,16 +49,17 @@ load_dotenv()
 _ENCODER = get_encoding("cl100k_base")
 
 
-CONCURRENCY = 64  # example
+CONCURRENCY = 64  # adjust to your sustainable QPS
+
 limits = httpx.Limits(
-    max_connections=CONCURRENCY * 2,  # total pool across the host
-    max_keepalive_connections=CONCURRENCY * 2,  # keep enough warm sockets
+    max_connections=CONCURRENCY * 2,
+    max_keepalive_connections=CONCURRENCY * 2,
+    keepalive_expiry=30.0,  # <-- belongs here, not on transport
 )
 
 transport = httpx.AsyncHTTPTransport(
-    http2=True,  # keep H2
-    retries=0,  # you handle retries
-    keepalive_expiry=30.0,  # keep sockets warm
+    http2=True,  # ok to keep
+    # no 'keepalive_expiry' or 'retries' here
 )
 
 http_client = httpx.AsyncClient(
@@ -66,16 +67,16 @@ http_client = httpx.AsyncClient(
     limits=limits,
     timeout=httpx.Timeout(
         connect=5.0,
-        # Large generations can exceed 45s; if this trips, you'll see
-        # staggered completions due to retries/backoff.
-        read=180.0,
+        read=180.0,  # bump if generations are long
         write=30.0,
         pool=30.0,
     ),
 )
 
 OPENAI_CLIENT = AsyncOpenAI(
-    http_client=http_client, timeout=180.0, max_retries=0
+    http_client=http_client,
+    timeout=180.0,
+    max_retries=0,  # keep your own backoff logic
 )
 
 CACHE_FILE = Path("openai_cache.json")
