@@ -55,7 +55,7 @@ RESULT_STORE: Dict[str, Dict[str, Any]] = {}
 STORE_LOCK = asyncio.Lock()
 
 
-MAX_TOKENS_PER_CHUNK = 9000
+MAX_TOKENS_PER_CHUNK = 100000
 
 
 @app.on_event("startup")
