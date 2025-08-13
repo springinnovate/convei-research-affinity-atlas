@@ -130,7 +130,7 @@ async def _process_job(job_id: str):
         async def _run_one(batch_msgs):
             async with sem:
                 try:
-                    payload = await safe_openai_completion(batch_msgs, "gpt-5")
+                    payload = await safe_openai_completion(batch_msgs, "gpt-4o")
                 except Exception as e:
                     async with _JOBS_LOCK:
                         job.errors.append(repr(e))
