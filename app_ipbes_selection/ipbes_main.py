@@ -344,7 +344,7 @@ class PersonRequest(BaseModel):
 def get_person_bio(payload: PersonRequest, request: Request):
     return {
         "name": payload.person_name,
-        "bio": "not yet implemented",
+        "bio": "Bio implementation under construction",
         "url_list": [
             (
                 request.url_for("static", path=file_path)
