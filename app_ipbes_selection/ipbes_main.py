@@ -130,9 +130,7 @@ async def _process_job(job_id: str):
         async def _run_one(batch_msgs):
             async with sem:
                 try:
-                    payload = await safe_openai_completion(
-                        batch_msgs, "gpt-5-nano"
-                    )
+                    payload = await safe_openai_completion(batch_msgs, "gpt-5")
                 except Exception as e:
                     async with _JOBS_LOCK:
                         job.errors.append(repr(e))
@@ -333,7 +331,7 @@ class JobState:
 
 JOBS: Dict[str, JobState] = {}
 _JOBS_LOCK = asyncio.Lock()
-_CONCURRENCY = 8  # tune as needed
+_CONCURRENCY = 32  # tune as needed
 
 
 class PersonRequest(BaseModel):

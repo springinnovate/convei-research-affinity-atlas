@@ -49,28 +49,33 @@ load_dotenv()
 _ENCODER = get_encoding("cl100k_base")
 
 
-MAX_CONN = 64
-MAX_KEEPALIVE = 32
-BIO_GEN_SEMAPHORE = asyncio.Semaphore(MAX_CONN)
+CONCURRENCY = 64  # example
+limits = httpx.Limits(
+    max_connections=CONCURRENCY * 2,  # total pool across the host
+    max_keepalive_connections=CONCURRENCY * 2,  # keep enough warm sockets
+)
+
+transport = httpx.AsyncHTTPTransport(
+    http2=True,  # keep H2
+    retries=0,  # you handle retries
+    keepalive_expiry=30.0,  # keep sockets warm
+)
 
 http_client = httpx.AsyncClient(
-    http2=True,  # better multiplexing when available
-    limits=httpx.Limits(
-        max_connections=MAX_CONN,
-        max_keepalive_connections=MAX_KEEPALIVE,
-    ),
-    timeout=httpx.Timeout(  # finer control than a single 900s blob
-        connect=5.0,  # DNS/TCP/TLS
-        read=45.0,  # server response body
-        write=30.0,  # request upload
-        pool=30.0,  # wait time for a free connection from pool
+    transport=transport,
+    limits=limits,
+    timeout=httpx.Timeout(
+        connect=5.0,
+        # Large generations can exceed 45s; if this trips, you'll see
+        # staggered completions due to retries/backoff.
+        read=180.0,
+        write=30.0,
+        pool=30.0,
     ),
 )
 
 OPENAI_CLIENT = AsyncOpenAI(
-    http_client=http_client,
-    timeout=45.0,  # SDK-level safety net; per-call you can still wrap with asyncio.wait_for
-    max_retries=0,  # do your own retry/backoff on 429/5xx
+    http_client=http_client, timeout=180.0, max_retries=0
 )
 
 CACHE_FILE = Path("openai_cache.json")
