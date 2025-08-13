@@ -79,6 +79,8 @@ OPENAI_CLIENT = AsyncOpenAI(
     max_retries=0,  # keep your own backoff logic
 )
 
+BIO_GEN_SEMAPHORE = asyncio.Semaphore(CONCURRENCY)
+
 CACHE_FILE = Path("openai_cache.json")
 _cache: dict[str, str] = {}
 
