@@ -1,6 +1,8 @@
 """Module to handle all LLM analysis."""
 
 from typing import Any, Dict, List
+import time
+import httpx
 import hashlib
 import asyncio
 from pathlib import Path
@@ -19,9 +21,9 @@ from openai import (
 )
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
+from tiktoken import get_encoding
 
 
-BIO_GEN_SEMAPHORE = asyncio.Semaphore(50)
 _TOKENS_USED_LAST_MINUTE = []
 _REQUESTS_LAST_MINUTE = []
 
@@ -40,11 +42,36 @@ logging.basicConfig(
 LOGGER = logging.getLogger(__name__)
 
 logging.getLogger("openai").setLevel(logging.INFO)
+logging.getLogger("hpack").setLevel(logging.WARNING)
 
 load_dotenv()
 
+_ENCODER = get_encoding("cl100k_base")
 
-OPENAI_CLIENT = AsyncOpenAI(timeout=30)
+
+MAX_CONN = 64
+MAX_KEEPALIVE = 32
+BIO_GEN_SEMAPHORE = asyncio.Semaphore(MAX_CONN)
+
+http_client = httpx.AsyncClient(
+    http2=True,  # better multiplexing when available
+    limits=httpx.Limits(
+        max_connections=MAX_CONN,
+        max_keepalive_connections=MAX_KEEPALIVE,
+    ),
+    timeout=httpx.Timeout(  # finer control than a single 900s blob
+        connect=5.0,  # DNS/TCP/TLS
+        read=45.0,  # server response body
+        write=30.0,  # request upload
+        pool=30.0,  # wait time for a free connection from pool
+    ),
+)
+
+OPENAI_CLIENT = AsyncOpenAI(
+    http_client=http_client,
+    timeout=45.0,  # SDK-level safety net; per-call you can still wrap with asyncio.wait_for
+    max_retries=0,  # do your own retry/backoff on 429/5xx
+)
 
 CACHE_FILE = Path("openai_cache.json")
 _cache: dict[str, str] = {}
@@ -84,6 +111,42 @@ async def safe_openai_completion(*args, **kwargs):
         return await _safe_openai_completion(*args, **kwargs)
 
 
+def estimate_tokens_for_messages(messages: list[Dict]) -> int:
+    """Rough token count for messages (system+user+assistant roles)."""
+    # Each message has some overhead in ChatML format; +3 per message, +3 overall
+    tokens = 3
+    for m in messages:
+        tokens += 3  # per message overhead
+        tokens += len(_ENCODER.encode(m.get("content", "")))
+    return tokens
+
+
+async def _wait_for_rate_limit(tokens_needed: int):
+    """Wait until sending this many tokens won't exceed TPM/RPM."""
+    global _TOKENS_USED_LAST_MINUTE, _REQUESTS_LAST_MINUTE
+
+    while True:
+        now = time.time()
+        _TOKENS_USED_LAST_MINUTE = [
+            (t, ts) for t, ts in _TOKENS_USED_LAST_MINUTE if now - ts < 60
+        ]
+        _REQUESTS_LAST_MINUTE = [
+            ts for ts in _REQUESTS_LAST_MINUTE if now - ts < 60
+        ]
+
+        used_tokens = sum(t for t, _ in _TOKENS_USED_LAST_MINUTE)
+        used_requests = len(_REQUESTS_LAST_MINUTE)
+
+        if (used_tokens + tokens_needed <= TPM_LIMIT) and (
+            used_requests + 1 <= RPM_LIMIT
+        ):
+            _TOKENS_USED_LAST_MINUTE.append((tokens_needed, now))
+            _REQUESTS_LAST_MINUTE.append(now)
+            return
+
+        await asyncio.sleep(0.05)
+
+
 async def _safe_openai_completion(
     messages: List[Dict[str, Any]],
     openai_model: str,
@@ -91,6 +154,7 @@ async def _safe_openai_completion(
     max_attempts: int = 3,
     base_backoff: float = 0.75,
     max_backoff: float = 8.0,
+    job_id: str = None,
 ) -> Any:
 
     if not _cache:
@@ -118,10 +182,12 @@ async def _safe_openai_completion(
 
             _cache[cache_key] = content
             await _save_cache()
-
             return content
 
-        except BadRequestError:
+        except BadRequestError as e:
+            LOGGER.exception(
+                f"{job_id}: bad request error forasyncio cancelled error: {e}"
+            )
             # Caller likely sent an invalid request (schema/content/too long). Do not retry.
             raise
 
@@ -131,6 +197,7 @@ async def _safe_openai_completion(
             APIConnectionError,
             APITimeoutError,
         ) as e:
+            LOGGER.warning(f"{job_id}: some sort of rate limit error: {e}")
             if attempt >= max_attempts:
                 raise
             # Exponential backoff with jitter
@@ -145,7 +212,8 @@ async def _safe_openai_completion(
             )
             await asyncio.sleep(sleep_for)
 
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as e:
+            LOGGER.warning(f"{job_id}: asyncio cancelled error: {e}")
             # Preserve task cancellation
             raise
 

@@ -23,7 +23,7 @@
         </nav>
 
         <div class="container">
-            <h4 class="mb-3"><a href="https://events.rdmobile.com/Sessions/Index/19095" target="_blank">ESA 2025</a> - CONVEI Research Affinity Atlas</h4>
+            <h4 class="mb-3"><a href="https://events.rdmobile.com/Sessions/Index/19095" target="_blank">Internal IPBES Selection</a> - CONVEI Research Affinity Atlas</h4>
             <div id="infoContainer" class="mt-4"></div>
 
             <h4 class="mt-5 mb-3">Find Interesting People</h4>
@@ -31,7 +31,7 @@
                 <textarea id="UserInterestText"
                           class="form-control mb-2"
                           rows="3"
-                          placeholder="Tell us your topics, keywords, frameworks, areas of interest, and/or anything else, and we’ll use ESA 2025's participant bios, abstracts, and session information to help you discover people whose work aligns with those ideas."></textarea>
+                          placeholder="Describe the role, responsibilities, and qualifications you have in mind including topics, skills, communities, and approaches and we'll identify candidates in the dataset whose documented expertise and experience best fits"></textarea>
 
                 <button id="MatchPeopleBtn" class="btn btn-primary">
                   <span id="MatchPeopleBtnText">Find Matches</span>
@@ -183,16 +183,18 @@
 
                           const ul = document.createElement('ul');
                           ul.className = 'small mb-0 ps-3';
-                          url_list.forEach(u => {
-                            if (!u) return;
-                            const li = document.createElement('li');
-                            const a = document.createElement('a');
-                            a.href = u;
-                            a.target = '_blank';
-                            a.rel = 'noopener noreferrer';
-                            a.textContent = u;
-                            li.appendChild(a);
-                            ul.appendChild(li);
+                          url_list.forEach(sub_url_list => {
+                            sub_url_list.forEach(u => {
+                              if (!u) return;
+                              const li = document.createElement('li');
+                              const a = document.createElement('a');
+                              a.href = u['_url'];
+                              a.target = '_blank';
+                              a.rel = 'noopener noreferrer';
+                              a.textContent = u['_url'];
+                              li.appendChild(a);
+                              ul.appendChild(li);
+                            });
                           });
 
                           listWrap.appendChild(ul);
@@ -302,9 +304,9 @@
                 await new Promise((resolve, reject) => {
                   matchProgressTimer = setInterval(async () => {
                     try {
-                      const { done, total, status, message } = await fetchJSON(`/people/search/progress?job_id=${encodeURIComponent(job_id)}`);
-                      if (total > 0) {
-                        txt.textContent = `Matching... (${done} of ${total} chunks done) -- Do not navigate away from the page`;
+                      const { total_batches, submitted, completed, status } = await fetchJSON(`/people/search/progress/${encodeURIComponent(job_id)}`);
+                      if (total_batches > 0) {
+                        txt.textContent = `Matching... (${completed} of ${total_batches} chunks done) -- Do not navigate away from the page`;
                       } else {
                         txt.textContent = 'Matching...';
                       }
@@ -327,7 +329,7 @@
                 });
 
                 // 3) fetch result
-                const result = await fetchJSON(`/people/search/result?job_id=${encodeURIComponent(job_id)}`);
+                const result = await fetchJSON(`/people/search/result/${encodeURIComponent(job_id)}`);
                 renderMatches(result);
 
               } catch (e) {
@@ -453,146 +455,216 @@
               const target = getEl('MatchResults');
               target.innerHTML = '';
 
-              if (!payload || !Array.isArray(payload.matches) || payload.matches.length === 0) {
+              const hasResults =
+                payload &&
+                Array.isArray(payload.results) &&
+                payload.results.some(r => Array.isArray(r.shortlist) && r.shortlist.length > 0);
+
+              if (!hasResults) {
                 target.innerHTML = `
                   <div class="alert alert-warning" role="alert">
-                    No matches found for this query.
+                    No results found for this query.
                   </div>
                 `;
-                if (payload?.notes) {
-                  const notes = document.createElement('div');
-                  notes.className = 'text-muted small mt-1';
-                  notes.textContent = payload.notes;
-                  target.appendChild(notes);
-                }
                 return;
               }
 
-              // Optional header showing the query
-              const hdr = document.createElement('div');
-              hdr.className = 'mb-3';
-              hdr.innerHTML = `
-                <div class="fw-semibold">Query</div>
-                <div class="text-muted">${escapeHtml(payload.query || '')}</div>
-              `;
-              target.appendChild(hdr);
+              const esc = (s) =>
+                (typeof escapeHtml === 'function')
+                  ? escapeHtml(String(s ?? ''))
+                  : String(s ?? '')
+                      .replace(/&/g, '&amp;')
+                      .replace(/</g, '&lt;')
+                      .replace(/>/g, '&gt;')
+                      .replace(/"/g, '&quot;')
+                      .replace(/'/g, '&#039;');
 
-              // Results list
+              const percent = (() => {
+                const total = Number(payload.total_batches || 0);
+                const done = Number(payload.completed || 0);
+                if (!total) return 0;
+                return Math.min(100, Math.max(0, Math.round((done / total) * 100)));
+              })();
+
+              const header = document.createElement('div');
+              header.className = 'mb-3';
+              header.innerHTML = `
+                <div class="d-flex align-items-start justify-content-between flex-wrap gap-2">
+                  <div>
+                    <div class="fw-semibold">Query</div>
+                    <div class="text-muted">${esc(payload.query || (payload.results?.[0]?.query || ''))}</div>
+                  </div>
+                  <div class="text-end">
+                    <div class="d-flex align-items-center gap-2 justify-content-end flex-wrap">
+                      <span class="badge ${payload.status === 'done' ? 'text-bg-success' : 'text-bg-info'}">${esc(payload.status || 'running')}</span>
+                      <span class="small text-muted">${Number(payload.completed || 0)}/${Number(payload.total_batches || 0)} batches</span>
+                    </div>
+                    <div class="progress mt-2" role="progressbar" aria-label="progress">
+                      <div class="progress-bar" style="width:${percent}%;" aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100">${percent}%</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="small text-muted mt-1">
+                  Job ID: <code>${esc(payload.job_id || '')}</code>
+                  ${payload.started_at ? ` • Started: ${esc(payload.started_at)}` : ''}
+                  ${payload.finished_at ? ` • Finished: ${esc(payload.finished_at)}` : ''}
+                </div>
+              `;
+              target.appendChild(header);
+
               const list = document.createElement('div');
               list.className = 'd-flex flex-column gap-3';
               target.appendChild(list);
 
-              payload.matches.forEach((m, idx) => {
-                const card = document.createElement('div');
-                card.className = 'card shadow-sm';
+              const toStaticHref = (src) => {
+                if (!src) return '#';
+                const cleaned = String(src).replace(/^\/?static\//, '').replace(/^\/+/, '');
+                return encodeURI(`/static/${cleaned}`);
+              };
 
-                const body = document.createElement('div');
-                body.className = 'card-body';
+              const confidenceBadgeClass = (c) => {
+                const v = Number(c);
+                if (v >= 0.9) return 'text-bg-success';
+                if (v >= 0.75) return 'text-bg-primary';
+                if (v >= 0.5) return 'text-bg-warning';
+                return 'text-bg-secondary';
+              };
 
-                // Title row: index + name + badges
-                const title = document.createElement('div');
-                title.className = 'd-flex align-items-start justify-content-between flex-wrap gap-2';
+              let rank = 0;
+              payload.results.forEach((group) => {
+                const shortlist = Array.isArray(group.shortlist) ? group.shortlist : [];
+                if (!shortlist.length) return;
 
-                // inside renderMatches loop
-                const nameEl = document.createElement('h5');
-                nameEl.className = 'card-title mb-0 fw-bold person-name';
-                nameEl.style.cursor = 'pointer';
-
-                // Number span (muted)
-                const numSpan = document.createElement('span');
-                numSpan.className = 'text-muted me-2';
-                numSpan.textContent = `${idx + 1}.`;
-
-                // Name span (display only)
-                const textSpan = document.createElement('span');
-                textSpan.textContent = m.name || 'Unknown';
-
-                nameEl.appendChild(numSpan);
-                nameEl.appendChild(textSpan);
-
-                title.appendChild(nameEl);
-
-                // Attach hover with the raw name (no number)
-                attachBioHover(textSpan, m.name || 'Unknown');
-
-                const badges = document.createElement('div');
-                badges.className = 'd-flex gap-2';
-
-                const relBadge = document.createElement('span');
-                relBadge.className = `badge ${relationBadgeClass(m.relation)}`;
-                relBadge.textContent = (m.relation || 'adjacent').toLowerCase();
-                badges.appendChild(relBadge);
-
-                const confBadge = document.createElement('span');
-                confBadge.className = `badge ${confidenceBadgeClass(m.confidence)}`;
-                confBadge.textContent = (m.confidence || 'medium').toLowerCase();
-                badges.appendChild(confBadge);
-
-                title.appendChild(badges);
-                body.appendChild(title);
-
-                // Why
-                if (m.why) {
-                  const why = document.createElement('p');
-                  why.className = 'mt-2 mb-2';
-                  why.textContent = m.why;
-                  body.appendChild(why);
+                // Optional subheader if multiple groups are present
+                if ((payload.results?.length || 0) > 1) {
+                  const sub = document.createElement('div');
+                  sub.className = 'mt-2';
+                  sub.innerHTML = `
+                    <div class="fw-semibold">Group Query</div>
+                    <div class="text-muted">${esc(group.query || '')}</div>
+                  `;
+                  list.appendChild(sub);
                 }
 
-                // Snippet
-                if (m.snippet) {
-                  const sn = document.createElement('blockquote');
-                  sn.className = 'blockquote small mb-2';
-                  sn.textContent = m.snippet;
-                  body.appendChild(sn);
-                }
+                shortlist.forEach((m) => {
+                  rank += 1;
 
-                // Matched signals
-                if (Array.isArray(m.matched_signals) && m.matched_signals.length) {
-                  const sigWrap = document.createElement('div');
-                  sigWrap.className = 'small text-muted';
-                  const ul = document.createElement('ul');
-                  ul.className = 'mb-0 ps-3';
-                  m.matched_signals.forEach(s => {
-                    if (!s) return;
-                    const li = document.createElement('li');
-                    li.textContent = s;
-                    ul.appendChild(li);
-                  });
-                  sigWrap.appendChild(ul);
-                  body.appendChild(sigWrap);
-                }
+                  const card = document.createElement('div');
+                  card.className = 'card shadow-sm';
 
-                card.appendChild(body);
-                list.appendChild(card);
+                  const body = document.createElement('div');
+                  body.className = 'card-body';
+
+                  // Title row
+                  const title = document.createElement('div');
+                  title.className = 'd-flex align-items-start justify-content-between flex-wrap gap-2';
+
+                  const nameEl = document.createElement('h5');
+                  nameEl.className = 'card-title mb-0 fw-bold person-name';
+                  nameEl.style.cursor = 'pointer';
+
+                  const numSpan = document.createElement('span');
+                  numSpan.className = 'text-muted me-2';
+                  numSpan.textContent = `${rank}.`;
+
+                  const textSpan = document.createElement('span');
+                  textSpan.textContent = m.name || 'Unknown';
+
+                  nameEl.appendChild(numSpan);
+                  nameEl.appendChild(textSpan);
+                  title.appendChild(nameEl);
+
+                  const badgeWrap = document.createElement('div');
+                  badgeWrap.className = 'd-flex gap-2 align-items-center flex-wrap';
+
+                  const scoreBadge = document.createElement('span');
+                  scoreBadge.className = 'badge text-bg-dark';
+                  scoreBadge.textContent = `score ${Math.round(Number(m.score || 0))}`;
+                  badgeWrap.appendChild(scoreBadge);
+
+                  if (m.confidence != null) {
+                    const confBadge = document.createElement('span');
+                    confBadge.className = `badge ${confidenceBadgeClass(m.confidence)}`;
+                    confBadge.textContent = `conf ${Number(m.confidence).toFixed(2)}`;
+                    badgeWrap.appendChild(confBadge);
+                  }
+
+                  title.appendChild(badgeWrap);
+                  body.appendChild(title);
+
+                  // Hover for bios (if provided by your app)
+                  if (typeof attachBioHover === 'function') {
+                    attachBioHover(textSpan, m.name || 'Unknown');
+                  }
+
+                  // Summary
+                  if (m.summary) {
+                    const p = document.createElement('p');
+                    p.className = 'mt-2 mb-2';
+                    p.textContent = m.summary;
+                    body.appendChild(p);
+                  }
+
+                  // Fit tags
+                  if (Array.isArray(m.fit_tags) && m.fit_tags.length) {
+                    const tagsWrap = document.createElement('div');
+                    tagsWrap.className = 'd-flex gap-2 flex-wrap mb-2';
+                    m.fit_tags.forEach(tag => {
+                      if (!tag) return;
+                      const b = document.createElement('span');
+                      b.className = 'badge text-bg-light text-dark border';
+                      b.textContent = tag;
+                      tagsWrap.appendChild(b);
+                    });
+                    body.appendChild(tagsWrap);
+                  }
+
+                  // Evidence
+                  if (Array.isArray(m.evidence) && m.evidence.length) {
+                    const details = document.createElement('details');
+                    details.className = 'mt-2';
+                    const summary = document.createElement('summary');
+                    summary.className = 'small';
+                    summary.textContent = `Evidence (${m.evidence.length})`;
+                    details.appendChild(summary);
+
+                    const evWrap = document.createElement('div');
+                    evWrap.className = 'mt-2';
+
+                    m.evidence.forEach((ev) => {
+                      const item = document.createElement('div');
+                      item.className = 'mb-2';
+
+                      if (ev.source) {
+                        const a = document.createElement('a');
+                        a.href = toStaticHref(ev.source);
+                        a.target = '_blank';
+                        a.rel = 'noopener noreferrer';
+                        a.className = 'small d-inline-block';
+                        a.textContent = ev.source;
+                        item.appendChild(a);
+                      }
+
+                      if (ev.snippet) {
+                        const sn = document.createElement('blockquote');
+                        sn.className = 'blockquote small mb-0 mt-1';
+                        sn.textContent = ev.snippet;
+                        item.appendChild(sn);
+                      }
+
+                      evWrap.appendChild(item);
+                    });
+
+                    details.appendChild(evWrap);
+                    body.appendChild(details);
+                  }
+
+                  card.appendChild(body);
+                  list.appendChild(card);
+                });
               });
-
-              // Notes (optional)
-              if (payload.notes) {
-                const notes = document.createElement('div');
-                notes.className = 'text-muted small mt-2';
-                notes.textContent = payload.notes;
-                target.appendChild(notes);
-              }
             }
 
-            // ---- Helpers ----
-
-            function relationBadgeClass(rel) {
-              const r = String(rel || '').toLowerCase();
-              if (r === 'direct') return 'text-bg-primary';
-              if (r === 'adjacent') return 'text-bg-secondary';
-              if (r === 'emerging') return 'text-bg-warning';
-              return 'text-bg-light';
-            }
-
-            function confidenceBadgeClass(c) {
-              const v = String(c || '').toLowerCase();
-              if (v === 'high') return 'text-bg-success';
-              if (v === 'medium') return 'text-bg-info';
-              if (v === 'low') return 'text-bg-light';
-              return 'text-bg-light';
-            }
 
             function escapeHtml(str) {
               return String(str)

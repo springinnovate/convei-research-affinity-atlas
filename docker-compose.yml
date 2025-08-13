@@ -20,13 +20,14 @@ services:
       - web
     tty: true
     stdin_open: true
+    ports:
+      - '127.0.0.1:8001:8000'
 
   ipbes-selection:
     hostname: ipbes-selection
     build: ./app_ipbes_selection
     volumes:
-      - ./ipbes_selection/data:/app/data
-      - ./ipbes_selection:/app
+      - ./app_ipbes_selection:/app
     environment:
       PYTHONUNBUFFERED: '1'
     labels:
@@ -42,6 +43,8 @@ services:
       - web
     tty: true
     stdin_open: true
+    ports:
+      - '127.0.0.1:8002:8000'
 
   reverse-proxy:
     image: traefik:v2.11

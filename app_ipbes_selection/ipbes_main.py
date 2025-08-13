@@ -1,33 +1,33 @@
 """Entrypoint for CONVEI research affinity atlas app."""
 
-import os
-from datetime import timezone
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime
+import uuid
+import json
+from typing import Any, Dict, List, Optional
 import asyncio
 import logging
 import sys
-import uuid
+from dataclasses import dataclass, field
 
 from pathlib import Path
 import uvicorn
-from fastapi import Depends
-from sqlalchemy.orm import Session
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi import HTTPException
+from fastapi import Request
 from pydantic import BaseModel
-from fastapi import Query
 
 
-from database import SessionLocal, init_db
-from models import Entity, ProcessedFile
-from llm_analyzer import (
-    generate_bios,
-    _cached_llm_chunk_match,
-    _merge_matches,
-    _enc,
+from pdf_miner import (
+    SELECTION_COMMITTEE_BASE_MESSAGE,
+    chunk_people_into_batches,
 )
+from llm_analyzer import (
+    estimate_tokens_for_messages,
+    safe_openai_completion,
+)
+
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -44,7 +44,9 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 BASE_DIR = Path(__file__).resolve().parent
 
 app = FastAPI()
-app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+app.mount(
+    "/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static"
+)
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.auto_reload = True
 
@@ -52,43 +54,16 @@ PROGRESS_STORE: Dict[str, Dict[str, Any]] = {}
 RESULT_STORE: Dict[str, Dict[str, Any]] = {}
 STORE_LOCK = asyncio.Lock()
 
-TUPLES_PER_CHUNK = 250  # simple tuple-based chunking
 
-
-class StartRequest(BaseModel):
-    query: str
-
-
-class ProgressResponse(BaseModel):
-    job_id: str
-    done: int
-    total: int
-    status: str  # running|done|error
-    message: Optional[str] = None
-
-
-class ResultResponse(BaseModel):
-    query: str
-    matches: List[Dict[str, Any]]
-    notes: Optional[str] = None
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+MAX_TOKENS_PER_CHUNK = 9000
 
 
 @app.on_event("startup")
 async def startup_event():
-    init_db()
-    input_json_path = os.environ.get("INPUT_JSON_PATH", None)
-    if input_json_path is None:
-        raise ValueError("undefined INPUT_JSON_PATH env variable")
-    db = SessionLocal()
-    await generate_bios(input_json_path, db)
+    global NAME_TO_CONTEXT
+    NAME_TO_CONTEXT = json.loads(
+        open("merged_output.json", "r", encoding="utf-8").read()
+    )
 
 
 @app.get("/")
@@ -97,235 +72,327 @@ async def read_root(request: Request):
 
 
 @app.get("/get_info/")
-def get_info(db: Session = Depends(get_db)):
-    pf = db.query(ProcessedFile).order_by(ProcessedFile.processed_at.desc()).first()
-    if not pf:
-        return {"dbInfo": "Database not initialized yet."}
-
-    ts = pf.processed_at
-    # fall back if naive
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
-
-    return {"dbInfo": f"Database created from {pf.filename} at {ts.isoformat()}"}
-
-
-@app.get("/entities/")
-async def list_entities():
-    db = SessionLocal()
-    try:
-        entities = db.query(Entity).all()
-        names = [p.name for p in entities if p.name]
-
-        # sort by last name (case-insensitive)
-        sorted_names = sorted(set(names), key=lambda n: n.strip().split()[-1].lower())
-
-        return {"entities": sorted_names}
-    finally:
-        db.close()
-
-
-class PersonRequest(BaseModel):
-    person_name: str
-
-
-class CrawlRequest(BaseModel):
-    url: str
-    max_pages: int
-    url_pattern: str
-    required_text: str
-
-
-@app.post("/person/bio")
-def get_person_bio(payload: PersonRequest, db: Session = Depends(get_db)):
-    entity = db.query(Entity).filter(Entity.name == payload.person_name).first()
-    if not entity:
-        raise HTTPException(status_code=404, detail="Person not found")
-
-    return {
-        "name": entity.name,
-        "bio": entity.bio,
-        "url_list": entity.url_list or [],
-    }
+def get_info():
+    return {"dbInfo": "unimplemented"}
 
 
 class SearchRequest(BaseModel):
     query: str
 
 
-class SearchResponse(BaseModel):
+class SearchSubmitResponse(BaseModel):
+    job_id: str
+    total_batches: int
+
+
+class SearchProgressResponse(BaseModel):
+    job_id: str
+    status: str
+    total_batches: int
+    submitted: int
+    completed: int
+    percent: float
+    started_at: str
+    finished_at: Optional[str] = None
+    errors: List[str] = []
+
+
+class SearchResultResponse(BaseModel):
+    job_id: str
+    status: str
+    result: Optional[Dict[str, Any]] = None
+    errors: List[str] = []
+
+
+async def _process_job(job_id: str):
+    async with _JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if not job:
+        return
+
+    try:
+        user_question = job.query
+
+        batches = chunk_people_into_batches(
+            system_content=SELECTION_COMMITTEE_BASE_MESSAGE,
+            user_question=user_question,
+            name_to_context=NAME_TO_CONTEXT,
+            token_limit=MAX_TOKENS_PER_CHUNK,
+            estimate_tokens_for_messages=estimate_tokens_for_messages,
+            reserved_for_response=1500,
+        )
+
+        async with _JOBS_LOCK:
+            job.total_batches = len(batches)
+
+        sem = asyncio.Semaphore(_CONCURRENCY)
+
+        async def _run_one(batch_msgs):
+            async with sem:
+                try:
+                    payload = await safe_openai_completion(
+                        batch_msgs, "gpt-5-nano"
+                    )
+                except Exception as e:
+                    async with _JOBS_LOCK:
+                        job.errors.append(repr(e))
+                        job.submitted += 1
+                    return None
+                else:
+                    async with _JOBS_LOCK:
+                        job.submitted += 1
+                    return payload
+
+        tasks = [asyncio.create_task(_run_one(m)) for m in batches]
+
+        results: List[Any] = []
+        for fut in asyncio.as_completed(tasks):
+            res = await fut
+            if res is not None:
+                results.append(res)
+            async with _JOBS_LOCK:
+                job.completed += 1
+
+        merged = _merge_matches([p for p in results if p], job.query)
+
+        async with _JOBS_LOCK:
+            job.results = [merged]
+            job.status = "done"
+            job.finished_at = datetime.utcnow().isoformat() + "Z"
+
+    except Exception as e:
+        async with _JOBS_LOCK:
+            job.status = "error"
+            job.errors.append(repr(e))
+            job.finished_at = datetime.utcnow().isoformat() + "Z"
+
+
+def _merge_matches(payloads, query):
+    def _parse(p):
+        if p is None:
+            return {}
+        if isinstance(p, str):
+            try:
+                return json.loads(p)
+            except Exception:
+                return {}
+        if isinstance(p, dict):
+            # already parsed JSON
+            return p
+        # best-effort for SDK-like objects
+        try:
+            content = (
+                p.choices[0].message["content"]
+                if isinstance(p.choices[0].message, dict)
+                else p.choices[0].message.content
+            )
+            return json.loads(content)
+        except Exception:
+            return {}
+
+    def _merge_evidence(a, b):
+        a = a or []
+        b = b or []
+        seen = {(e.get("source", ""), e.get("snippet", "")) for e in a}
+        out = list(a)
+        for e in b:
+            key = (e.get("source", ""), e.get("snippet", ""))
+            if key not in seen:
+                out.append(
+                    {
+                        "source": e.get("source", ""),
+                        "snippet": e.get("snippet", ""),
+                    }
+                )
+                seen.add(key)
+        return out
+
+    shortlist_map = {}  # key: lower(name) -> record
+    near_map = {}  # key: lower(name) -> record
+    unknown = set()
+    notes = []
+
+    for p in payloads:
+        data = _parse(p)
+        if not data:
+            continue
+
+        if isinstance(data.get("notes"), str) and data["notes"].strip():
+            notes.append(data["notes"].strip())
+
+        for item in data.get("shortlist", []) or []:
+            name = (item.get("name") or "").strip()
+            if not name:
+                continue
+            key = name.lower()
+            if key not in shortlist_map:
+                shortlist_map[key] = {
+                    "name": name,
+                    "score": int(item.get("score", 0) or 0),
+                    "summary": item.get("summary", "") or "",
+                    "evidence": item.get("evidence") or [],
+                    "fit_tags": sorted(set(item.get("fit_tags") or [])),
+                    "confidence": float(item.get("confidence", 0) or 0.0),
+                }
+            else:
+                cur = shortlist_map[key]
+                cur["score"] = max(
+                    cur.get("score", 0), int(item.get("score", 0) or 0)
+                )
+                cur["confidence"] = max(
+                    float(cur.get("confidence", 0) or 0.0),
+                    float(item.get("confidence", 0) or 0.0),
+                )
+                # keep longer summary
+                cand_sum = item.get("summary", "") or ""
+                if len(cand_sum) > len(cur.get("summary", "") or ""):
+                    cur["summary"] = cand_sum
+                # merge evidence and tags
+                cur["evidence"] = _merge_evidence(
+                    cur.get("evidence"), item.get("evidence")
+                )
+                cur["fit_tags"] = sorted(
+                    set(
+                        (cur.get("fit_tags") or [])
+                        + (item.get("fit_tags") or [])
+                    )
+                )
+
+        for nm in data.get("near_misses", []) or []:
+            name = (nm.get("name") or "").strip()
+            if not name:
+                continue
+            key = name.lower()
+            if key in shortlist_map:
+                # already shortlisted elsewhere; fold in any extra evidence
+                shortlist_map[key]["evidence"] = _merge_evidence(
+                    shortlist_map[key].get("evidence"), nm.get("evidence")
+                )
+                continue
+            if key not in near_map:
+                near_map[key] = {
+                    "name": name,
+                    "reason": nm.get("reason", "") or "",
+                    "evidence": nm.get("evidence") or [],
+                }
+            else:
+                cur = near_map[key]
+                if len(nm.get("reason", "") or "") > len(
+                    cur.get("reason", "") or ""
+                ):
+                    cur["reason"] = nm.get("reason", "") or ""
+                cur["evidence"] = _merge_evidence(
+                    cur.get("evidence"), nm.get("evidence")
+                )
+
+        for unk in data.get("unknown_or_insufficient", []) or []:
+            if isinstance(unk, str) and unk.strip():
+                unknown.add(unk.strip())
+
+    # remove unknowns that are shortlisted or near-miss elsewhere
+    unknown = sorted(
+        n
+        for n in unknown
+        if n.lower() not in shortlist_map and n.lower() not in near_map
+    )
+
+    merged = {
+        "query": query,
+        "shortlist": sorted(
+            shortlist_map.values(),
+            key=lambda x: (
+                -x.get("score", 0),
+                -float(x.get("confidence", 0) or 0.0),
+                x.get("name", ""),
+            ),
+        ),
+        "near_misses": sorted(
+            near_map.values(), key=lambda x: x.get("name", "")
+        ),
+        "unknown_or_insufficient": unknown,
+        "notes": " | ".join(dict.fromkeys(n for n in notes if n))[:2000],
+    }
+    return merged
+
+
+@dataclass
+class JobState:
+    job_id: str
     query: str
-    matches: List[Dict[str, Any]]
-    notes: Optional[str] = None
+    total_batches: int
+    submitted: int = 0
+    completed: int = 0
+    started_at: str = field(
+        default_factory=lambda: datetime.utcnow().isoformat() + "Z"
+    )
+    finished_at: Optional[str] = None
+    status: str = "running"  # running|done|error|cancelled
+    results: List[Any] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
 
 
-MAX_TOKENS_PER_CHUNK = 9000
+JOBS: Dict[str, JobState] = {}
+_JOBS_LOCK = asyncio.Lock()
+_CONCURRENCY = 8  # tune as needed
 
 
-@app.post("/people/search", response_model=SearchResponse)
-async def people_search(req: SearchRequest, db: Session = Depends(get_db)):
+class PersonRequest(BaseModel):
+    person_name: str
+
+
+@app.post("/person/bio")
+def get_person_bio(payload: PersonRequest, request: Request):
+    return {
+        "name": payload.person_name,
+        "bio": "not yet implemented",
+        "url_list": [
+            (
+                request.url_for("static", path=file_path)
+                for file_path in NAME_TO_CONTEXT[payload.person_name]["files"]
+            )
+        ],
+    }
+
+
+@app.post("/people/search/start", response_model=SearchSubmitResponse)
+async def people_search_start(req: SearchRequest):
     query = (req.query or "").strip()
     if not query:
         raise HTTPException(status_code=400, detail="Empty query")
 
-    rows: List[Entity] = db.query(Entity).all()
-    # TODO: limit 10 for debugging
-    # rows: List[Entity] = db.query(Entity).limit(10).all()
-    candidates: List[Tuple[str, str]] = [(r.name, r.bio or "") for r in rows if r.name]
+    job_id = str(uuid.uuid4())
+    job = JobState(job_id=job_id, query=query, total_batches=0)
 
-    current_tokens = 0
-    current_chunk = []
-    chunks = []
+    async with _JOBS_LOCK:
+        JOBS[job_id] = job
 
-    for name, bio in candidates:
-        pair_text = f"Name: {name}\nBio:\n{bio}\n"
-        LOGGER.debug(pair_text)
-        tokens = len(_enc.encode(pair_text))  # using tiktoken encoder
-
-        if current_tokens + tokens > MAX_TOKENS_PER_CHUNK and current_chunk:
-            chunks.append(current_chunk)
-            current_chunk = []
-            current_tokens = 0
-
-        current_chunk.append((name, bio))
-        current_tokens += tokens
-
-    if current_chunk:
-        chunks.append(current_chunk)
-
-    # run chunks with bounded concurrency
-    sem = asyncio.Semaphore(8)
-
-    async def run_chunk(ch: List[Tuple[str, str]]) -> Optional[Dict[str, Any]]:
-        async with sem:
-            try:
-                LOGGER.info(f"running chunk that's {len(ch)} long")
-                return await _cached_llm_chunk_match(query, ch)
-            except Exception as e:
-                LOGGER.warning(f"failure on {query} {ch} {e}")
-                return None
-
-    tasks = [run_chunk(ch) for ch in chunks]
-    payloads = await asyncio.gather(*tasks)
-
-    merged = _merge_matches([p for p in payloads if p], query)
-    return merged
+    asyncio.create_task(_process_job(job_id))
+    return SearchSubmitResponse(job_id=job_id, total_batches=0)
 
 
-async def _run_search_job(job_id: str, query: str):
-    # each job uses its own DB session
-    db = SessionLocal()
-    try:
-        rows: List[Entity] = db.query(Entity).order_by(Entity.name).all()
-        candidates: List[Tuple[str, str]] = [
-            (r.name, r.bio or "") for r in rows if r.name
-        ]
-
-        # build chunks
-        chunks: List[List[Tuple[str, str]]] = []
-        buf: List[Tuple[str, str]] = []
-        for pair in candidates:
-            buf.append(pair)
-            if len(buf) >= TUPLES_PER_CHUNK:
-                chunks.append(buf)
-                buf = []
-        if buf:
-            chunks.append(buf)
-
-        async with STORE_LOCK:
-            PROGRESS_STORE[job_id] = {
-                "job_id": job_id,
-                "done": 0,
-                "total": len(chunks),
-                "status": "running",
-                "message": None,
-            }
-
-        sem = asyncio.Semaphore(8)
-
-        async def run_chunk(ch):
-            async with sem:
-                try:
-                    payload = await _cached_llm_chunk_match(db, query, ch)
-                except Exception as e:
-                    LOGGER.exception(f"error on {ch}")
-                    payload = None
-                finally:
-                    async with STORE_LOCK:
-                        st = PROGRESS_STORE.get(job_id)
-                        if st:
-                            st["done"] = min(st["done"] + 1, st["total"])
-                return payload
-
-        payloads = await asyncio.gather(*[run_chunk(ch) for ch in chunks])
-        merged = _merge_matches([p for p in payloads if p], query)
-
-        async with STORE_LOCK:
-            RESULT_STORE[job_id] = merged
-            st = PROGRESS_STORE.get(job_id)
-            if st:
-                st["status"] = "done"
-                st["message"] = None
-
-    except Exception as e:
-        async with STORE_LOCK:
-            st = PROGRESS_STORE.setdefault(
-                job_id,
-                {
-                    "job_id": job_id,
-                    "done": 0,
-                    "total": 0,
-                    "status": "error",
-                    "message": str(e),
-                },
-            )
-            st["status"] = "error"
-            st["message"] = str(e)
-    finally:
-        db.close()
+@app.get("/people/search/result/{job_id}", response_model=JobState)
+async def people_search_result(job_id: str):
+    async with _JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job_id not found")
+    return job
 
 
-@app.post("/people/search/start")
-async def start_people_search(req: StartRequest):
-    q = (req.query or "").strip()
-    if not q:
-        raise HTTPException(status_code=400, detail="Empty query")
-    job_id = uuid.uuid4().hex
-    async with STORE_LOCK:
-        PROGRESS_STORE[job_id] = {
-            "job_id": job_id,
-            "done": 0,
-            "total": 0,
-            "status": "running",
-            "message": None,
-        }
-    asyncio.create_task(_run_search_job(job_id, q))
-    return {"job_id": job_id}
+@app.get("/people/search/progress/{job_id}", response_model=JobState)
+async def people_search_progress(job_id: str):
+    async with _JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job_id not found")
+    LOGGER.info(job)
+    return job
 
 
-@app.get("/people/search/progress", response_model=ProgressResponse)
-async def people_search_progress(job_id: str = Query(...)):
-    async with STORE_LOCK:
-        st = PROGRESS_STORE.get(job_id)
-        if not st:
-            raise HTTPException(status_code=404, detail="Unknown job_id")
-        return st
-
-
-@app.get("/people/search/result", response_model=ResultResponse)
-async def people_search_result(job_id: str = Query(...)):
-    async with STORE_LOCK:
-        res = RESULT_STORE.get(job_id)
-        st = PROGRESS_STORE.get(job_id)
-        if not st:
-            raise HTTPException(status_code=404, detail="Unknown job_id")
-        if st["status"] == "error":
-            raise HTTPException(
-                status_code=500, detail=st.get("message") or "Search failed"
-            )
-        if st["status"] != "done" or not res:
-            raise HTTPException(status_code=202, detail="Not ready")
-        return res
+@app.get("/entities/")
+async def list_entities():
+    sorted_names = list(sorted(NAME_TO_CONTEXT))
+    return {"entities": sorted_names}
 
 
 if __name__ == "__main__":
