@@ -25,6 +25,9 @@
         <div class="container">
             <h4 class="mb-3">Internal IPBES Selection - CONVEI Research Affinity Atlas</h4>
 
+            <h6>Backend database info</h6>
+            <div id="BackendInfoContainer"></div>
+
             <h4 class="mt-5 mb-3">Find Interesting People</h4>
               <div id="MatchPeopleContainer">
                 <textarea id="UserInterestText"
@@ -644,7 +647,49 @@
                 .replaceAll("'", '&#039;');
             }
 
+            async function loadBackendInfo() {
+                const container = document.getElementById('BackendInfoContainer');
+                container.innerHTML = '';
+
+                try {
+                    const response = await fetch('/get_info/');
+                    if (!response.ok) {
+                        throw new Error(`HTTP error ${response.status}`);
+                    }
+
+                    const data = await response.json();
+
+                    // Create Bootstrap table
+                    const table = document.createElement('table');
+                    table.className = 'table table-bordered table-striped table-sm';
+
+                    const tbody = document.createElement('tbody');
+
+                    for (const [key, value] of Object.entries(data)) {
+                        const row = document.createElement('tr');
+
+                        const keyCell = document.createElement('th');
+                        keyCell.scope = 'row';
+                        keyCell.textContent = key;
+
+                        const valueCell = document.createElement('td');
+                        valueCell.textContent = value;
+
+                        row.appendChild(keyCell);
+                        row.appendChild(valueCell);
+                        tbody.appendChild(row);
+                    }
+
+                    table.appendChild(tbody);
+                    container.appendChild(table);
+
+                } catch (err) {
+                    container.innerHTML = `<div class="alert alert-danger">Error loading backend info: ${err.message}</div>`;
+                }
+            }
+
             document.addEventListener('DOMContentLoaded',()=>{
+              loadBackendInfo();
               loadEntities();
             });
             </script>

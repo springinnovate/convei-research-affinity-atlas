@@ -77,7 +77,7 @@ async def read_root(request: Request):
 @app.get("/get_info/")
 def get_info():
     timestamp = os.path.getmtime(MERGED_OUTPUT_JSON_PATH)
-    formatted_timestamp = datetime.datetime.fromtimestamp(timestamp).strftime(
+    formatted_timestamp = datetime.fromtimestamp(timestamp).strftime(
         "%Y-%m-%d %H:%M:%S"
     )
     return {
