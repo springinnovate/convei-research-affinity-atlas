@@ -343,7 +343,7 @@ class JobState:
 
 JOBS: Dict[str, JobState] = {}
 _JOBS_LOCK = asyncio.Lock()
-_CONCURRENCY = 32  # tune as needed
+_CONCURRENCY = 64
 
 
 class PersonRequest(BaseModel):
