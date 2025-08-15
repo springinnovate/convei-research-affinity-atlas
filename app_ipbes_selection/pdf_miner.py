@@ -287,8 +287,117 @@ async def distangle_names(file_dir: Path, json_target_path: Path):
             ),
         },
     ]
+
+    response_format = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "entity_resolution_result",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "clusters": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "alpha": {"type": "string"},
+                                "aliases": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                                "members": {
+                                    "type": "object",
+                                    "properties": {
+                                        "A": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "index": {
+                                                        "type": "integer"
+                                                    },
+                                                    "name": {"type": "string"},
+                                                },
+                                                "required": ["index", "name"],
+                                                "additionalProperties": False,
+                                            },
+                                        },
+                                        "B": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "index": {
+                                                        "type": "integer"
+                                                    },
+                                                    "name": {"type": "string"},
+                                                },
+                                                "required": ["index", "name"],
+                                                "additionalProperties": False,
+                                            },
+                                        },
+                                    },
+                                    "required": ["A", "B"],
+                                    "additionalProperties": False,
+                                },
+                                "confidence": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1,
+                                },
+                            },
+                            "required": [
+                                "alpha",
+                                "aliases",
+                                "members",
+                                "confidence",
+                            ],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "unmatched": {
+                        "type": "object",
+                        "properties": {
+                            "A": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "index": {"type": "integer"},
+                                        "name": {"type": "string"},
+                                    },
+                                    "required": ["index", "name"],
+                                    "additionalProperties": False,
+                                },
+                            },
+                            "B": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "index": {"type": "integer"},
+                                        "name": {"type": "string"},
+                                    },
+                                    "required": ["index", "name"],
+                                    "additionalProperties": False,
+                                },
+                            },
+                        },
+                        "required": ["A", "B"],
+                        "additionalProperties": False,
+                    },
+                },
+                "required": ["clusters", "unmatched"],
+                "additionalProperties": False,
+            },
+            "strict": True,
+        },
+    }
     formatted_names_content = await safe_openai_completion(
-        distangle_name_messages, "gpt-5", job_id=f"distangle names"
+        distangle_name_messages,
+        "o3",
+        job_id=f"distangle names",
+        response_format=response_format,
     )
     print(formatted_names_content)
     try:
@@ -430,8 +539,6 @@ SELECTION_COMMITTEE_BASE_MESSAGE = (
 async def main():
     input_dir = Path("pdf_data")
     text_dir = Path("txts")
-    # candidate_text_dir = Path(text_dir)
-    # count = 1
 
     # while candidate_text_dir.exists():
     #     candidate_text_dir = text_dir.with_name(
@@ -439,9 +546,9 @@ async def main():
     #     )
     #     count += 1
     # text_dir = candidate_text_dir
-    text_dir.mkdir(parents=True, exist_ok=True)
+    # text_dir.mkdir(parents=True, exist_ok=True)
 
-    task_list = []
+    # task_list = []
 
     # LOGGER.info("creating clean noms")
     # for index, nomination_pdf_path in enumerate(
@@ -467,9 +574,9 @@ async def main():
     # ):
     #     await task
 
-    # await distangle_names(text_dir, "aliases.json")
+    #    await distangle_names(text_dir, "aliases.json")
 
-    aliases = json.loads(open("aliases.txt").read())
+    aliases = json.loads(open("aliases.json").read())
     alpha_to_alias = {}
     alias_to_alpha = {}
 
@@ -495,21 +602,21 @@ async def main():
         json.dumps(name_to_context)
     )
 
-    user_question = "find me people who assess the ways in which Indigenous Peoples and local communities interact with their environment and the reciprocal relationships between nature and people, as well as the roles of social relationships, kinship, caring and the guardianship of nature and how these are supported by the knowledge systems of Indigenous Peoples and local communities, including values, practices, management, technologies and institutions for environmental and territorial governance"
+    # user_question = "find me people who assess the ways in which Indigenous Peoples and local communities interact with their environment and the reciprocal relationships between nature and people, as well as the roles of social relationships, kinship, caring and the guardianship of nature and how these are supported by the knowledge systems of Indigenous Peoples and local communities, including values, practices, management, technologies and institutions for environmental and territorial governance"
 
-    batches = chunk_people_into_batches(
-        system_content=SELECTION_COMMITTEE_BASE_MESSAGE,
-        user_question=user_question,
-        name_to_context=name_to_context,
-        token_limit=200000,
-        estimate_tokens_for_messages=estimate_tokens_for_messages,
-        reserved_for_response=1500,
-    )
+    # batches = chunk_people_into_batches(
+    #     system_content=SELECTION_COMMITTEE_BASE_MESSAGE,
+    #     user_question=user_question,
+    #     name_to_context=name_to_context,
+    #     token_limit=200000,
+    #     estimate_tokens_for_messages=estimate_tokens_for_messages,
+    #     reserved_for_response=1500,
+    # )
 
-    LOGGER.info("submitting for consideration")
-    result = await safe_openai_completion(batches[0], "gpt-5-nano")
-    open("result.json", "w", encoding="utf-8").write(json.dumps(result))
-    # open("batches.json", "w", encoding="utf-8").write(json.dumps(batches))
+    # LOGGER.info("submitting for consideration")
+    # result = await safe_openai_completion(batches[0], "gpt-5-nano")
+    # open("result.json", "w", encoding="utf-8").write(json.dumps(result))
+    # # open("batches.json", "w", encoding="utf-8").write(json.dumps(batches))
 
 
 if __name__ == "__main__":

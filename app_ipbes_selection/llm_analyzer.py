@@ -163,6 +163,7 @@ async def _safe_openai_completion(
     base_backoff: float = 0.75,
     max_backoff: float = 8.0,
     job_id: str = None,
+    response_format: dict = None,
 ) -> Any:
 
     if not _cache:
@@ -184,6 +185,8 @@ async def _safe_openai_completion(
                 "messages": msgs,
                 "timeout": timeout,
             }
+            if response_format:
+                kwargs["response_format"] = response_format
 
             result = await OPENAI_CLIENT.chat.completions.create(**kwargs)
             content = result.choices[0].message.content

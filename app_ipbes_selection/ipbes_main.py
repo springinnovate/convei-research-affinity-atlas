@@ -1,22 +1,23 @@
 """Entrypoint for CONVEI research affinity atlas app."""
 
+from dataclasses import dataclass, field
 from datetime import datetime
-import uuid
-import json
 from typing import Any, Dict, List, Optional
 import asyncio
+import json
 import logging
+import os
 import sys
-from dataclasses import dataclass, field
+import uuid
 
-from pathlib import Path
-import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
 from fastapi import HTTPException
 from fastapi import Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from pathlib import Path
 from pydantic import BaseModel
+import uvicorn
 
 
 from pdf_miner import (
@@ -57,12 +58,14 @@ STORE_LOCK = asyncio.Lock()
 
 MAX_TOKENS_PER_CHUNK = 100000
 
+MERGED_OUTPUT_JSON_PATH = "merged_output.json"
+
 
 @app.on_event("startup")
 async def startup_event():
     global NAME_TO_CONTEXT
     NAME_TO_CONTEXT = json.loads(
-        open("merged_output.json", "r", encoding="utf-8").read()
+        open(MERGED_OUTPUT_JSON_PATH, "r", encoding="utf-8").read()
     )
 
 
@@ -73,7 +76,14 @@ async def read_root(request: Request):
 
 @app.get("/get_info/")
 def get_info():
-    return {"dbInfo": "unimplemented"}
+    timestamp = os.path.getmtime(MERGED_OUTPUT_JSON_PATH)
+    formatted_timestamp = datetime.datetime.fromtimestamp(timestamp).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    return {
+        "Number of people": len(NAME_TO_CONTEXT),
+        "Timestamp": formatted_timestamp,
+    }
 
 
 class SearchRequest(BaseModel):
