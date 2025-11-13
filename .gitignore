@@ -1,4 +1,4 @@
 .env
 __pycache__/
-configs/
+configs/*
 !configs/crawler_config_example.yaml

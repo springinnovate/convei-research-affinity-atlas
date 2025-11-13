@@ -1,0 +1,26 @@
+crawler:
+  name: example_crawl
+
+  start_urls:
+    - https://example.com/start
+    - https://example.com/section/page1
+    - https://example.com/section/page2
+
+  allowed_domains:
+    - example.com
+
+  max_depth: 3
+  max_pages: 1000
+
+  request:
+    timeout_seconds: 10
+    max_retries: 2
+    retry_backoff_seconds: 1.0
+    delay_between_requests_seconds: 0.5
+    concurrent_requests: 8
+    proxies: []
+
+  storage:
+    type: filesystem
+    base_path: ./example_data/crawl_output
+    overwrite: false
