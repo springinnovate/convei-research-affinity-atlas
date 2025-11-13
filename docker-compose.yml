@@ -1,4 +1,30 @@
 services:
+
+  agu2025:
+    hostname: agu2025
+    build: ./app_agu2025
+    volumes:
+      - ./app_agu2025/data:/app/data
+      - ./app_agu2025:/app
+    environment:
+      PYTHONUNBUFFERED: '1'
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.http.routers.agu2025.rule=Host(`agu2025.craa.ecoshard.org`)'
+      - 'traefik.http.routers.agu2025.entrypoints=websecure'
+      - 'traefik.http.routers.agu2025.tls=true'
+      - 'traefik.http.routers.agu2025.tls.certresolver=letsencrypt'
+      - 'traefik.http.services.agu2025.loadbalancer.server.port=8000'
+    depends_on:
+      - reverse-proxy
+    networks:
+      - web
+    tty: true
+    stdin_open: true
+    ports:
+      - '127.0.0.1:8001:8000'
+
+
   esa2025:
     hostname: esa2025
     build: ./app_esa2025
