@@ -1,4 +1,4 @@
-# CONVEI Database Files
+# ESA2025 CRAA Database Files
 
 This directory holds the **convei_db_v2.db** SQLite database files.  
 These databases were likely used as the **live data store** for the CONVEI application during its active period.
