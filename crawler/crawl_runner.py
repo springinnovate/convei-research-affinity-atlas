@@ -1,5 +1,21 @@
+"""
+This script crawls a set of urls storing the information in an sqlite database
+based off of the input YAML configuration provided. The YAML configuration
+example can be seen at `example_crawler.yaml` in this directory.
+
+To run this inside the Docker environment from the current directory:
+
+  docker build -t crawl_env .
+  docker run --rm -it -v %CD%:/app crawl_env
+
+Then, inside the container:
+
+  python crawl_runner.py path/to/configuration.yaml
+"""
+
 import argparse
 import os
+
 import yaml
 
 
