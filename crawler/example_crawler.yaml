@@ -5,9 +5,7 @@ example_crawler:
     - 'https://example.com/'
     - 'https://at.domain.com/some/start/path'
 
-  # What’s allowed to be crawled
-  # Supported types:
-  #   - domain: whole domain, all paths, all subdomains
+  # What's allowed to be crawled
   allowed_scopes:
       - 'domain.com'
       - 'at.domain.com'
