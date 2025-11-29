@@ -44,7 +44,9 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 BASE_DIR = Path(__file__).resolve().parent
 
 app = FastAPI()
-app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+app.mount(
+    "/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static"
+)
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.auto_reload = True
 
@@ -98,7 +100,11 @@ async def read_root(request: Request):
 
 @app.get("/get_info/")
 def get_info(db: Session = Depends(get_db)):
-    pf = db.query(ProcessedFile).order_by(ProcessedFile.processed_at.desc()).first()
+    pf = (
+        db.query(ProcessedFile)
+        .order_by(ProcessedFile.processed_at.desc())
+        .first()
+    )
     if not pf:
         return {"dbInfo": "Database not initialized yet."}
 
@@ -107,7 +113,9 @@ def get_info(db: Session = Depends(get_db)):
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
 
-    return {"dbInfo": f"Database created from {pf.filename} at {ts.isoformat()}"}
+    return {
+        "dbInfo": f"Database created from {pf.filename} at {ts.isoformat()}"
+    }
 
 
 @app.get("/entities/")
@@ -118,7 +126,9 @@ async def list_entities():
         names = [p.name for p in entities if p.name]
 
         # sort by last name (case-insensitive)
-        sorted_names = sorted(set(names), key=lambda n: n.strip().split()[-1].lower())
+        sorted_names = sorted(
+            set(names), key=lambda n: n.strip().split()[-1].lower()
+        )
 
         return {"entities": sorted_names}
     finally:
@@ -171,7 +181,9 @@ async def people_search(req: SearchRequest, db: Session = Depends(get_db)):
     rows: List[Entity] = db.query(Entity).all()
     # TODO: limit 10 for debugging
     # rows: List[Entity] = db.query(Entity).limit(10).all()
-    candidates: List[Tuple[str, str]] = [(r.name, r.bio or "") for r in rows if r.name]
+    candidates: List[Tuple[str, str]] = [
+        (r.name, r.bio or "") for r in rows if r.name
+    ]
 
     current_tokens = 0
     current_chunk = []
