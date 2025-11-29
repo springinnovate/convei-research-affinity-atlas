@@ -3,6 +3,6 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir openai python-dotenv pyyaml pypdf
+RUN pip install --no-cache-dir pyyaml
 
 CMD ["bash"]
