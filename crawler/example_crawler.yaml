@@ -1,0 +1,24 @@
+# this section has to match the stem of the input yaml for sanity reasons
+example_crawler:
+  # Where to start crawling
+  start_urls:
+    - 'https://example.com/'
+    - 'https://at.domain.com/some/start/path'
+
+  # What’s allowed to be crawled
+  # Supported types:
+  #   - domain: whole domain, all paths, all subdomains
+  allowed_scopes:
+      - 'domain.com'
+      - 'at.domain.com'
+      - 'https://domain.com/onlyu/this/path'
+      - 'https://another.com/section/'
+
+  # Page limit:
+  #   - integer: stop after this many pages
+  #   - 'no_limit': crawl everything within allowed_scopes
+  max_pages: 'no_limit'
+
+  # Output configuration
+  output:
+    sqlite_path: './data/crawl_output.sqlite'
