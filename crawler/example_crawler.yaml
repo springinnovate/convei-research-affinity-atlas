@@ -19,6 +19,12 @@ example_crawler:
   #   - 'no_limit': crawl everything within allowed_scopes
   max_pages: 'no_limit'
 
+
+  # Concurrency and throttling
+  concurrency:
+    workers: 4 # number of parallel workers
+    requests_per_second: 1.0  # global rate limit, float, per second
+
   # Output configuration
   output:
     sqlite_path: './data/crawl_output.sqlite'
