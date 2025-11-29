@@ -14,9 +14,15 @@ Then, inside the container:
 """
 
 import argparse
+import logging
 import os
 
 import yaml
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
+)
 
 
 def parse_crawler_config(path):
@@ -86,7 +92,7 @@ def main():
     )
     args = parser.parse_args()
     config = parse_crawler_config(args.config_path)
-    print(config)
+    logging.debug(config)
 
 
 if __name__ == "__main__":
