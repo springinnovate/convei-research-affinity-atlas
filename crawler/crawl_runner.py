@@ -13,10 +13,14 @@ Then, inside the container:
   python crawl_runner.py path/to/configuration.yaml
 """
 
+from urllib.parse import urlparse, urljoin
 import argparse
 import logging
 import os
 
+from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
+import requests
 import yaml
 
 logging.basicConfig(
@@ -75,6 +79,55 @@ def parse_crawler_config(path):
     }
 
 
+def fetch_rendered_html(url):
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(url, wait_until="networkidle")
+        html = page.content()
+        browser.close()
+        return html
+
+
+def crawl_from_config(config):
+    flaresolverr_url = os.environ.get("FLARESOLVERR_URL")
+    frontier = list(config["start_urls"])
+    visited = set(frontier)
+    allowed_scopes = config["allowed_scopes"]
+    max_pages = config["max_pages"]
+    if max_pages is None:
+        max_pages = float("inf")
+    pages_crawled = 0
+    while frontier and pages_crawled < max_pages:
+        url = frontier.pop()
+        html = fetch_rendered_html(url)
+        pages_crawled += 1
+        logging.debug(html)
+        soup = BeautifulSoup(html, "lxml")
+        for a in soup.find_all("a", href=True):
+            link = urljoin(url, a["href"])
+            if link in visited:
+                continue
+            parsed = urlparse(link)
+            netloc = parsed.netloc
+            allowed = False
+            for scope in allowed_scopes:
+                if scope.startswith("http://") or scope.startswith("https://"):
+                    if link.startswith(scope):
+                        allowed = True
+                        break
+                else:
+                    if netloc.endswith(scope):
+                        allowed = True
+                        break
+            if not allowed:
+                continue
+            visited.add(link)
+            frontier.append(link)
+    logging.debug(frontier)
+    return visited
+
+
 def main():
     """CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -93,6 +146,7 @@ def main():
     args = parser.parse_args()
     config = parse_crawler_config(args.config_path)
     logging.debug(config)
+    crawl_from_config(config)
 
 
 if __name__ == "__main__":
