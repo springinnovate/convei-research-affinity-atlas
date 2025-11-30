@@ -13,6 +13,7 @@ Then, inside the container:
   python crawl_runner.py path/to/configuration.yaml
 """
 
+from pathlib import Path
 from urllib.parse import urlparse, urljoin
 import argparse
 import logging
@@ -20,8 +21,11 @@ import os
 
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
-import requests
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 import yaml
+
+from models import Base, Page
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -75,7 +79,7 @@ def parse_crawler_config(path):
         "start_urls": section["start_urls"],
         "allowed_scopes": section["allowed_scopes"],
         "max_pages": max_pages,
-        "sqlite_path": section["output"]["sqlite_path"],
+        "sqlite_path": section["sqlite_path"],
         "content_sections": section["content_sections"],
         "workers": section["workers"],
         "requests_per_second": section["requests_per_second"],
@@ -122,6 +126,14 @@ def fetch_rendered_html(url, content_sections, drop_elements):
     return "\n".join(parts)
 
 
+def get_session(sqlite_path):
+    Path(sqlite_path).parent.mkdir(parents=True, exist_ok=True)
+    engine = create_engine(f"sqlite:///{sqlite_path}")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    return Session()
+
+
 def crawl_from_config(config):
     """Crawl a small site frontier based on a configuration dict.
 
@@ -156,8 +168,12 @@ def crawl_from_config(config):
             contents: A dict mapping each visited URL to the corresponding
                 cleaned HTML string returned by fetch_rendered_html.
     """
+    logging.debug(config["sqlite_path"])
+    session = get_session(config["sqlite_path"])
+    existing_urls = {u for (u,) in session.query(Page.url).all()}
+
     # convention from graph walking, "frontier" is the front line nodes
-    frontier = list(config["start_urls"])
+    frontier = [u for u in config["start_urls"] if u not in existing_urls]
     visited = set(frontier)
     allowed_scopes = config["allowed_scopes"]
     max_pages = config["max_pages"]

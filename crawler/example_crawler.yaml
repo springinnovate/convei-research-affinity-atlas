@@ -38,6 +38,5 @@ example_crawl:
   workers: 4               # number of parallel workers
   requests_per_second: 1.0 # global rate limit, float, per second
 
-  # Output configuration
-  output:
-    sqlite_path: './data/example_crawl.sqlite'
+  # Database location
+  sqlite_path: './data/example_crawl.sqlite'
