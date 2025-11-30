@@ -107,10 +107,13 @@ def crawl_from_config(config):
     if max_pages is None:
         max_pages = float("inf")
     pages_crawled = 0
+    contents = {}
     while frontier and pages_crawled < max_pages:
         url = frontier.pop()
+        visited.add(url)
         html = fetch_rendered_html(url, config["content_sections"])
         pages_crawled += 1
+        contents[url] = html
         soup = BeautifulSoup(html, "lxml")
         for a in soup.find_all("a", href=True):
             link = urljoin(url, a["href"])
@@ -130,10 +133,9 @@ def crawl_from_config(config):
                         break
             if not allowed:
                 continue
-            visited.add(link)
             frontier.append(link)
     logging.debug(frontier)
-    return visited
+    return visited, contents
 
 
 def main():
@@ -154,7 +156,8 @@ def main():
     args = parser.parse_args()
     config = parse_crawler_config(args.config_path)
     logging.debug(config)
-    crawl_from_config(config)
+    visited, contents = crawl_from_config(config)
+    logging.debug(visited)
 
 
 if __name__ == "__main__":
