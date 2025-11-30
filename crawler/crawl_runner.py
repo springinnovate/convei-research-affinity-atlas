@@ -76,21 +76,30 @@ def parse_crawler_config(path):
         "allowed_scopes": section["allowed_scopes"],
         "max_pages": max_pages,
         "sqlite_path": section["output"]["sqlite_path"],
+        "content_sections": section["content_sections"],
+        "workers": section["workers"],
+        "requests_per_second": section["requests_per_second"],
     }
 
 
-def fetch_rendered_html(url):
+def fetch_rendered_html(url, content_sections):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
         page.goto(url, wait_until="networkidle")
         html = page.content()
         browser.close()
+    if not content_sections:
         return html
+    soup = BeautifulSoup(html, "lxml")
+    parts = []
+    for selector in content_sections:
+        for el in soup.select(selector):
+            parts.append(str(el))
+    return "\n".join(parts)
 
 
 def crawl_from_config(config):
-    flaresolverr_url = os.environ.get("FLARESOLVERR_URL")
     frontier = list(config["start_urls"])
     visited = set(frontier)
     allowed_scopes = config["allowed_scopes"]
@@ -100,9 +109,8 @@ def crawl_from_config(config):
     pages_crawled = 0
     while frontier and pages_crawled < max_pages:
         url = frontier.pop()
-        html = fetch_rendered_html(url)
+        html = fetch_rendered_html(url, config["content_sections"])
         pages_crawled += 1
-        logging.debug(html)
         soup = BeautifulSoup(html, "lxml")
         for a in soup.find_all("a", href=True):
             link = urljoin(url, a["href"])
