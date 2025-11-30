@@ -215,10 +215,7 @@ def main():
     )
     args = parser.parse_args()
     config = parse_crawler_config(args.config_path)
-    logging.debug(config)
     visited, contents = crawl_from_config(config)
-    logging.debug(visited)
-    logging.debug(contents)
 
 
 if __name__ == "__main__":
