@@ -79,10 +79,30 @@ def parse_crawler_config(path):
         "content_sections": section["content_sections"],
         "workers": section["workers"],
         "requests_per_second": section["requests_per_second"],
+        "drop_elements": section["drop_elements"],
     }
 
 
-def fetch_rendered_html(url, content_sections):
+def fetch_rendered_html(url, content_sections, drop_elements):
+    """Fetch rendered HTML for a URL and optionally extract and clean sections.
+
+    Uses Playwright to load the page with JavaScript executed, then either:
+    - returns the full rendered HTML if no content_sections are provided, or
+    - returns a concatenation of only the elements matching the given CSS
+      selectors in content_sections, with any sub-elements matching
+      drop_elements removed.
+
+    Args:
+        url: Page URL to fetch.
+        content_sections: Iterable of CSS selectors for sections to keep.
+            If empty or falsy, the full rendered HTML is returned.
+        drop_elements: Iterable of CSS selectors for elements to remove
+            from within each selected content section.
+
+    Returns:
+        A string containing the rendered HTML or the concatenated, cleaned
+        subset of the HTML defined by content_sections and drop_elements.
+    """
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
@@ -95,11 +115,48 @@ def fetch_rendered_html(url, content_sections):
     parts = []
     for selector in content_sections:
         for el in soup.select(selector):
+            for drop_selector in drop_elements:
+                for d in el.select(drop_selector):
+                    d.decompose()
             parts.append(str(el))
     return "\n".join(parts)
 
 
 def crawl_from_config(config):
+    """Crawl a small site frontier based on a configuration dict.
+
+    Starts from the URLs in config["start_urls"], respects allowed scopes,
+    and limits the number of pages crawled. For each page, rendered content
+    is fetched via fetch_rendered_html, cleaned according to the config, and
+    stored. Links found in the cleaned HTML are filtered by allowed_scopes
+    and added to the frontier.
+
+    Config keys:
+        start_urls (Iterable[str]): Initial URLs to seed the crawl.
+        allowed_scopes (Iterable[str]): Domain or URL scope filters. Each
+            entry can be:
+            - a full URL prefix (starting with "http://" or "https://"),
+              matched via startswith, or
+            - a bare domain suffix (e.g. "example.org"), matched via
+              netloc.endswith.
+        max_pages (int or None): Maximum number of pages to crawl. If None,
+            the crawl is unbounded.
+        content_sections (Iterable[str]): CSS selectors passed to
+            fetch_rendered_html to extract desired page sections.
+        drop_elements (Iterable[str]): CSS selectors passed to
+            fetch_rendered_html to remove unwanted sub-elements.
+
+    Args:
+        config: Configuration dictionary as described above.
+
+    Returns:
+        A tuple (visited, contents) where:
+            visited: A set of all URLs that were popped from the frontier
+                and attempted (whether or not they yielded links).
+            contents: A dict mapping each visited URL to the corresponding
+                cleaned HTML string returned by fetch_rendered_html.
+    """
+    # convention from graph walking, "frontier" is the front line nodes
     frontier = list(config["start_urls"])
     visited = set(frontier)
     allowed_scopes = config["allowed_scopes"]
@@ -111,7 +168,11 @@ def crawl_from_config(config):
     while frontier and pages_crawled < max_pages:
         url = frontier.pop()
         visited.add(url)
-        html = fetch_rendered_html(url, config["content_sections"])
+        html = fetch_rendered_html(
+            url, config["content_sections"], config["drop_elements"]
+        )
+        with open("out", "w") as file:
+            file.write(html)
         pages_crawled += 1
         contents[url] = html
         soup = BeautifulSoup(html, "lxml")
@@ -134,7 +195,6 @@ def crawl_from_config(config):
             if not allowed:
                 continue
             frontier.append(link)
-    logging.debug(frontier)
     return visited, contents
 
 
@@ -158,6 +218,7 @@ def main():
     logging.debug(config)
     visited, contents = crawl_from_config(config)
     logging.debug(visited)
+    logging.debug(contents)
 
 
 if __name__ == "__main__":
