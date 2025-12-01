@@ -1,4 +1,5 @@
-"""
+"""Runner for web crawls.
+
 This script crawls a set of urls storing the information in an sqlite database
 based off of the input YAML configuration provided. The YAML configuration
 example can be seen at `example_crawler.yaml` in this directory.
@@ -13,11 +14,16 @@ Then, inside the container:
   python crawl_runner.py path/to/configuration.yaml
 """
 
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
-from urllib.parse import urlparse, urljoin
+from queue import Queue, Empty
+from urllib.parse import urlparse, urljoin, quote, urlsplit, urlunsplit
 import argparse
 import logging
 import os
+import threading
+import time
 
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
@@ -28,14 +34,13 @@ import yaml
 from models import Base, Page
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
 )
 
 
-def parse_crawler_config(path):
-    """
-    Parse a crawler YAML configuration file.
+def parse_crawler_config(yaml_config_path):
+    """Parse a crawler YAML configuration file.
 
     The YAML file is expected to have a single top-level key whose name matches
     the stem of the YAML filename. For example, for ``example_crawler.yaml``,
@@ -44,7 +49,7 @@ def parse_crawler_config(path):
     limits, and output database path.
 
     Args:
-        path (str): Filesystem path to the YAML configuration file.
+        yaml_config_path (str): Filesystem path to the YAML configuration file.
 
     Returns:
         dict: A dictionary containing:
@@ -61,12 +66,13 @@ def parse_crawler_config(path):
         KeyError: If required keys (e.g., ``start_urls``, ``allowed_scopes``,
             ``output.sqlite_path``) are missing from the configuration.
     """
-    with open(path, "r") as f:
+    with open(yaml_config_path, "r") as f:
         data = yaml.safe_load(f)
-    stem = os.path.splitext(os.path.basename(path))[0]
+    stem = os.path.splitext(os.path.basename(yaml_config_path))[0]
     if stem not in data:
         raise ValueError(
-            f"Expected a section named the filename stem '{stem}' but none was found in {path}"
+            f"Expected a section named the filename stem '{stem}' but none "
+            f"was found in {yaml_config_path}"
         )
     section = data[stem]
     max_pages_raw = section.get("max_pages")
@@ -74,20 +80,30 @@ def parse_crawler_config(path):
         max_pages = None
     else:
         max_pages = max_pages_raw
+
+    raw_sqlite_path = section["sqlite_path"]
+    if os.path.isabs(raw_sqlite_path):
+        sqlite_path = raw_sqlite_path
+    else:
+        sqlite_path = str(Path(yaml_config_path).parent / raw_sqlite_path)
+
     return {
         "name": stem,
         "start_urls": section["start_urls"],
         "allowed_scopes": section["allowed_scopes"],
         "max_pages": max_pages,
-        "sqlite_path": section["sqlite_path"],
+        "sqlite_path": sqlite_path,
         "content_sections": section["content_sections"],
-        "workers": section["workers"],
+        "num_workers": section["num_workers"],
         "requests_per_second": section["requests_per_second"],
         "drop_elements": section["drop_elements"],
+        "max_fetch_retries": section["max_fetch_retries"],
     }
 
 
-def fetch_rendered_html(url, content_sections, drop_elements):
+def fetch_and_filter_rendered_html(
+    browser, url, content_sections, drop_elements
+):
     """Fetch rendered HTML for a URL and optionally extract and clean sections.
 
     Uses Playwright to load the page with JavaScript executed, then either:
@@ -97,6 +113,8 @@ def fetch_rendered_html(url, content_sections, drop_elements):
       drop_elements removed.
 
     Args:
+        browser: A Playwright :class:`Browser` instance to use for creating
+            pages.
         url: Page URL to fetch.
         content_sections: Iterable of CSS selectors for sections to keep.
             If empty or falsy, the full rendered HTML is returned.
@@ -107,16 +125,16 @@ def fetch_rendered_html(url, content_sections, drop_elements):
         A string containing the rendered HTML or the concatenated, cleaned
         subset of the HTML defined by content_sections and drop_elements.
     """
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        page.goto(url, wait_until="networkidle")
-        html = page.content()
-        browser.close()
+    page = browser.new_page()
+    page.goto(url, wait_until="networkidle")
+    html = page.content()
     if not content_sections:
         return html
     soup = BeautifulSoup(html, "lxml")
     parts = []
+    base_tag = soup.find("base", href=True)
+    if base_tag:
+        parts.append(str(base_tag))
     for selector in content_sections:
         for el in soup.select(selector):
             for drop_selector in drop_elements:
@@ -127,6 +145,20 @@ def fetch_rendered_html(url, content_sections, drop_elements):
 
 
 def get_session(sqlite_path):
+    """Create and return a SQLAlchemy session for the given SQLite database.
+
+    Ensures that the directory for the SQLite file exists, initializes the
+    database engine, creates all tables defined on the Base metadata, and
+    returns a new session bound to that engine.
+
+    Args:
+        sqlite_path (str | pathlib.Path): Filesystem path to the SQLite
+            database file.
+
+    Returns:
+        sqlalchemy.orm.Session: A new SQLAlchemy session bound to the
+            initialized SQLite engine.
+    """
     Path(sqlite_path).parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(f"sqlite:///{sqlite_path}")
     Base.metadata.create_all(engine)
@@ -134,12 +166,24 @@ def get_session(sqlite_path):
     return Session()
 
 
+def normalize_url(url):
+    scheme, netloc, path, query, fragment = urlsplit(url)
+
+    path = quote(path, safe="/%")  # keep / and existing % encodings
+    query = quote(query, safe="=&?/%")  # keep query separators and %
+    # fragment is never sent to the server, but encoding anyway for consistency
+    # like https://example.com/page#section1
+    fragment = quote(fragment, safe="=%")
+
+    return urlunsplit((scheme, netloc, path, query, fragment))
+
+
 def crawl_from_config(config):
     """Crawl a small site frontier based on a configuration dict.
 
     Starts from the URLs in config["start_urls"], respects allowed scopes,
     and limits the number of pages crawled. For each page, rendered content
-    is fetched via fetch_rendered_html, cleaned according to the config, and
+    is fetched via fetch_and_filter_rendered_html, cleaned according to the config, and
     stored. Links found in the cleaned HTML are filtered by allowed_scopes
     and added to the frontier.
 
@@ -154,9 +198,9 @@ def crawl_from_config(config):
         max_pages (int or None): Maximum number of pages to crawl. If None,
             the crawl is unbounded.
         content_sections (Iterable[str]): CSS selectors passed to
-            fetch_rendered_html to extract desired page sections.
+            fetch_and_filter_rendered_html to extract desired page sections.
         drop_elements (Iterable[str]): CSS selectors passed to
-            fetch_rendered_html to remove unwanted sub-elements.
+            fetch_and_filter_rendered_html to remove unwanted sub-elements.
 
     Args:
         config: Configuration dictionary as described above.
@@ -166,52 +210,160 @@ def crawl_from_config(config):
             visited: A set of all URLs that were popped from the frontier
                 and attempted (whether or not they yielded links).
             contents: A dict mapping each visited URL to the corresponding
-                cleaned HTML string returned by fetch_rendered_html.
+                cleaned HTML string returned by fetch_and_filter_rendered_html.
     """
-    logging.debug(config["sqlite_path"])
-    session = get_session(config["sqlite_path"])
-    existing_urls = {u for (u,) in session.query(Page.url).all()}
-
-    # convention from graph walking, "frontier" is the front line nodes
-    frontier = [u for u in config["start_urls"] if u not in existing_urls]
-    visited = set(frontier)
+    session_factory_path = config["sqlite_path"]
     allowed_scopes = config["allowed_scopes"]
     max_pages = config["max_pages"]
     if max_pages is None:
         max_pages = float("inf")
+    num_workers = config["num_workers"]
+
+    # this is the graph term `frontier` for the front nodes to be visited
+    frontier = Queue()
+    for start_url in config["start_urls"]:
+        frontier.put(start_url)
+
+    # here, `visited` is the graph terminology visited rather than url visited
+    # consistent with `frontier`
+    visited = set()
     pages_crawled = 0
-    contents = {}
-    while frontier and pages_crawled < max_pages:
-        url = frontier.pop()
-        visited.add(url)
-        html = fetch_rendered_html(
-            url, config["content_sections"], config["drop_elements"]
-        )
-        with open("out", "w") as file:
-            file.write(html)
-        pages_crawled += 1
-        contents[url] = html
-        soup = BeautifulSoup(html, "lxml")
-        for a in soup.find_all("a", href=True):
-            link = urljoin(url, a["href"])
-            if link in visited:
-                continue
-            parsed = urlparse(link)
-            netloc = parsed.netloc
-            allowed = False
-            for scope in allowed_scopes:
-                if scope.startswith("http://") or scope.startswith("https://"):
-                    if link.startswith(scope):
-                        allowed = True
-                        break
+
+    visited_lock = threading.Lock()
+    pages_lock = threading.Lock()
+
+    def worker():
+        nonlocal pages_crawled
+        session = get_session(session_factory_path)
+        with sync_playwright() as p:
+            playwright_browser = p.chromium.launch(headless=True)
+            while True:
+                try:
+                    page_url = frontier.get(timeout=5.0)
+                except Empty:
+                    logging.info("frontier is empty, quitting")
+                    break
+                with pages_lock:
+                    if pages_crawled >= max_pages:
+                        logging.info(
+                            "max_pages reached quitting worker",
+                        )
+                        return
+                page_url = normalize_url(page_url)
+                logging.debug(page_url)
+                with visited_lock:
+                    if page_url in visited:
+                        logging.debug("already visited page_url: %s", page_url)
+                        continue
+                    visited.add(page_url)
+                logging.debug("visiting this page_url: %s", page_url)
+                page = session.query(Page).filter_by(url=page_url).one_or_none()
+                if page is None:
+                    page = Page(
+                        url=page_url,
+                        html=None,
+                        crawled_at=datetime.utcnow(),
+                        status=Page.IN_PROGRESS,
+                    )
+                    session.add(page)
+                    session.commit()
+                if page.html is None:
+                    attempts = 0
+                    delay = config.get("initial_backoff", 1.0)
+                    max_attempts = config["max_fetch_retries"]
+                    html = None
+                    error_list = []
+                    while attempts < max_attempts:
+                        attempts += 1
+                        try:
+                            html_candidate = fetch_and_filter_rendered_html(
+                                playwright_browser,
+                                page_url,
+                                config["content_sections"] + ["base"],
+                                config["drop_elements"],
+                            )
+                            if html_candidate is None or html_candidate == "":
+                                raise ValueError("empty html")
+                            html = html_candidate
+                            break
+                        except Exception as e:
+                            msg = str(e).lower()
+                            error_list.append(msg)
+                            over_ping = (
+                                "429" in msg
+                                or "too many requests" in msg
+                                or "rate limit" in msg
+                                or "retry later" in msg
+                            )
+                            logging.exception(
+                                f"error fetching {page_url} on attempt "
+                                f"{attempts}: {e}",
+                            )
+                            if over_ping and attempts < max_attempts:
+                                time.sleep(delay)
+                                delay *= 2
+                                continue
+                            else:
+                                break
+                    if html is not None:
+                        page.html = html
+                        page.status = Page.SUCCESS
+                    else:
+                        page.status = f"{Page.ERROR}: " + "\n".join(error_list)
+                        logging.error(page.status)
+                    session.commit()
+                    with pages_lock:
+                        pages_crawled += 1
                 else:
-                    if netloc.endswith(scope):
-                        allowed = True
-                        break
-            if not allowed:
-                continue
-            frontier.append(link)
-    return visited, contents
+                    html = page.html
+
+                if not html:
+                    error_msg = (
+                        f"{Page.ERROR}: no html stored for page_url: {page_url}"
+                    )
+                    page.status = error_msg
+                    logging.error(error_msg)
+                    continue
+
+                soup = BeautifulSoup(html, "lxml")
+                base_tag = soup.find("base")
+                if base_tag and base_tag.has_attr("href"):
+                    base_url = urljoin(page_url, base_tag["href"])
+                else:
+                    base_url = page_url
+
+                for a in soup.find_all("a", href=True):
+                    next_url = urljoin(base_url, a["href"])
+                    parsed = urlparse(next_url)
+                    host = parsed.hostname or ""
+                    allowed = False
+                    for scope in allowed_scopes:
+                        if scope.startswith("http://") or scope.startswith(
+                            "https://"
+                        ):
+                            if next_url.startswith(scope):
+                                allowed = True
+                                break
+                        else:
+                            if host == scope or host.endswith("." + scope):
+                                allowed = True
+                                break
+                    if not allowed:
+                        continue
+                    with visited_lock:
+                        if next_url in visited:
+                            continue
+                    with pages_lock:
+                        if pages_crawled >= max_pages:
+                            break
+                    frontier.put(next_url)
+
+    futures = []
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        for _ in range(num_workers):
+            futures.append(executor.submit(worker))
+        for f in futures:
+            f.result()
 
 
 def main():
@@ -231,7 +383,7 @@ def main():
     )
     args = parser.parse_args()
     config = parse_crawler_config(args.config_path)
-    visited, contents = crawl_from_config(config)
+    crawl_from_config(config)
 
 
 if __name__ == "__main__":

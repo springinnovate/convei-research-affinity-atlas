@@ -1,4 +1,4 @@
-#docker build -t crawl_env . && docker run --rm -it -v %CD%:/app crawl_env
+#docker build -f Dockerfile.crawler -t crawl_env . && docker run --rm -it -v %CD%:/app crawl_env
 FROM python:3.11-slim
 
 WORKDIR /app
