@@ -358,12 +358,45 @@ def crawl_from_config(config):
                             break
                     frontier.put(next_url)
 
+    crawl_done = False
+
+    def monitor_frontier():
+        last_pages = 0
+        last_time = time.time()
+        while not crawl_done:
+            time.sleep(5.0)
+            qsize = frontier.qsize()
+            with pages_lock:
+                done = pages_crawled
+            now = time.time()
+            delta_p = done - last_pages
+            delta_t = now - last_time
+            rate = delta_p / delta_t if delta_t > 0 else 0.0
+            remaining = max_pages - done
+            eta = remaining / rate if rate > 0 else None
+            if eta is None:
+                logging.info(
+                    f"frontier size={qsize}, pages_crawled={done}/{max_pages}, rate={rate:.3f} pages/s, eta=unknown"
+                )
+            else:
+                logging.info(
+                    f"frontier size={qsize}, pages_crawled={done}/{max_pages}, rate={rate:.3f} pages/s, eta={eta:.1f}s"
+                )
+            last_pages = done
+            last_time = now
+            if done >= max_pages and qsize == 0:
+                break
+
+    monitor_thread = threading.Thread(target=monitor_frontier, daemon=True)
+    monitor_thread.start()
+
     futures = []
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         for _ in range(num_workers):
             futures.append(executor.submit(worker))
         for f in futures:
             f.result()
+        crawl_done = True
 
 
 def main():
