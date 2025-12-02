@@ -360,7 +360,27 @@ def crawl_from_config(config):
 
     crawl_done = False
 
-    def monitor_frontier():
+    def _monitor_frontier():
+        """Periodically log crawl progress and an ETA based on frontier size and page rate.
+
+        This function is intended to run in a separate thread. It samples the size of
+        the shared frontier queue and the number of pages crawled so far, then logs
+        the current rate (pages per second) and an estimated time to completion.
+        The estimate is based on the recent rate and the remaining page budget.
+
+        The function relies on external shared state:
+          - frontier: queue of URLs pending crawl (must support qsize()).
+          - pages_crawled: integer count of pages completed so far.
+          - max_pages: maximum number of pages to crawl.
+          - pages_lock: lock protecting pages_crawled.
+          - crawl_done: boolean flag indicating that crawling should stop.
+
+        The loop terminates when either crawl_done is set to True, or when the
+        number of crawled pages reaches max_pages and the frontier is empty.
+
+        Returns:
+            None
+        """
         last_pages = 0
         last_time = time.time()
         while not crawl_done:
@@ -372,22 +392,27 @@ def crawl_from_config(config):
             delta_p = done - last_pages
             delta_t = now - last_time
             rate = delta_p / delta_t if delta_t > 0 else 0.0
-            remaining = max_pages - done
+            if max_pages == float("inf"):
+                pages_left = qsize
+                remaining = pages_left
+            else:
+                pages_left = max_pages
+                remaining = pages_left - done
             eta = remaining / rate if rate > 0 else None
             if eta is None:
                 logging.info(
-                    f"frontier size={qsize}, pages_crawled={done}/{max_pages}, rate={rate:.3f} pages/s, eta=unknown"
+                    f"frontier size={qsize}, pages_crawled={done}/{pages_left}, rate={rate:.3f} pages/s, eta=unknown"
                 )
             else:
                 logging.info(
-                    f"frontier size={qsize}, pages_crawled={done}/{max_pages}, rate={rate:.3f} pages/s, eta={eta:.1f}s"
+                    f"frontier size={qsize}, pages_crawled={done}/{pages_left}, rate={rate:.3f} pages/s, eta={eta:.1f}s"
                 )
             last_pages = done
             last_time = now
             if done >= max_pages and qsize == 0:
                 break
 
-    monitor_thread = threading.Thread(target=monitor_frontier, daemon=True)
+    monitor_thread = threading.Thread(target=_monitor_frontier, daemon=True)
     monitor_thread.start()
 
     futures = []
