@@ -1,0 +1,51 @@
+agu2025_crawl:
+  # Where to start crawling
+  start_urls:
+    # - https://agu.confex.com/agu/agu25/meetingapp.cgi/Session/269281
+    #- https://agu.confex.com/agu/agu25/meetingapp.cgi/Day/2025-12-14
+    #- https://agu.confex.com/agu/agu25/meetingapp.cgi/Person/90476
+
+    - https://agu.confex.com/agu/agu25/meetingapp.cgi/Day/2025-12-15
+    - https://agu.confex.com/agu/agu25/meetingapp.cgi/Day/2025-12-16
+    - https://agu.confex.com/agu/agu25/meetingapp.cgi/Day/2025-12-17
+    - https://agu.confex.com/agu/agu25/meetingapp.cgi/Day/2025-12-18
+    - https://agu.confex.com/agu/agu25/meetingapp.cgi/Day/2025-12-19
+
+  # What's allowed to be crawled
+  allowed_scopes:
+      - https://agu.confex.com/agu/agu25/meetingapp.cgi
+
+  # Optional: restrict parsing to certain sections of the page.
+  # These are CSS selectors. Set to `content_sections: null` to parse
+  # the full page.
+  content_sections:
+    - article.Content.Session
+    - article.Content.Person
+
+  drop_elements:
+    - path
+    - script
+    - svg
+    - form
+    - textarea
+    - input
+
+  # These are user defined abstract concepts that will be expected in this
+  # page, an LLM will use this info to process later
+  entities:
+    - Person
+    - Day
+    - Session
+
+  # Page limit:
+  #   - integer: stop after this many pages
+  #   - 'no_limit': crawl everything within allowed_scopes
+  max_pages: 'no_limit'
+
+
+  # Concurrency and throttling
+  num_workers: 32 # number of parallel workers
+  requests_per_second: 10.0  # global rate limit, float, per second
+  max_fetch_retries: 5  # how many attempts per url to fetch
+  # Database location
+  sqlite_path: './data/agu2025_crawl.sqlite'
