@@ -1,0 +1,39 @@
+agu2025_crawl:
+  # Where to start crawling
+  start_urls:
+    - https://agu.confex.com/agu/agu25/meetingapp.cgi/Day/2025-12-15
+    - https://agu.confex.com/agu/agu25/meetingapp.cgi/Day/2025-12-16
+    - https://agu.confex.com/agu/agu25/meetingapp.cgi/Day/2025-12-17
+    - https://agu.confex.com/agu/agu25/meetingapp.cgi/Day/2025-12-18
+    - https://agu.confex.com/agu/agu25/meetingapp.cgi/Day/2025-12-19
+
+  allowed_scopes:
+      - https://agu.confex.com/agu/agu25/meetingapp.cgi
+
+  # These are CSS selectors that restrict parsing to these sections of the page.
+  content_sections:
+    - article.Content.Session
+    - article.Content.Person
+
+  drop_elements:
+    - path
+    - script
+    - svg
+    - form
+    - textarea
+    - input
+
+  # These are user defined abstract concepts that will be expected in this
+  # page, an LLM will use this info to process later
+  entities:
+    - Person
+    - Day
+    - Session
+
+  # can put an integer here to get a fixed number of additional pages
+  max_pages: 'no_limit'
+
+  num_workers: 32
+  requests_per_second: 10.0
+  max_fetch_retries: 5
+  sqlite_path: './data/agu2025_crawl.sqlite'
