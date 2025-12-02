@@ -165,7 +165,6 @@ def get_session(sqlite_path):
     """
     Path(sqlite_path).parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(f"sqlite:///{sqlite_path}")
-    Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     return Session()
 
