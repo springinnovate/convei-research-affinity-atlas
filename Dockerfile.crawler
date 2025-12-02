@@ -11,4 +11,6 @@ RUN pip install --no-cache-dir \
     playwright \
     sqlalchemy && python -m playwright install --with-deps chromium
 
+RUN pip install alembic
+
 CMD ["bash"]
