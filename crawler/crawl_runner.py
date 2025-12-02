@@ -14,6 +14,7 @@ Then, inside the container:
   python crawl_runner.py path/to/configuration.yaml
 """
 
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -126,22 +127,25 @@ def fetch_and_filter_rendered_html(
         subset of the HTML defined by content_sections and drop_elements.
     """
     page = browser.new_page()
-    page.goto(url, wait_until="networkidle")
-    html = page.content()
-    if not content_sections:
-        return html
-    soup = BeautifulSoup(html, "lxml")
-    parts = []
-    base_tag = soup.find("base", href=True)
-    if base_tag:
-        parts.append(str(base_tag))
-    for selector in content_sections:
-        for el in soup.select(selector):
-            for drop_selector in drop_elements:
-                for d in el.select(drop_selector):
-                    d.decompose()
-            parts.append(str(el))
-    return "\n".join(parts)
+    try:
+        page.goto(url, wait_until="networkidle")
+        html = page.content()
+        if not content_sections:
+            return html
+        soup = BeautifulSoup(html, "lxml")
+        parts = []
+        base_tag = soup.find("base", href=True)
+        if base_tag:
+            parts.append(str(base_tag))
+        for selector in content_sections:
+            for el in soup.select(selector):
+                for drop_selector in drop_elements:
+                    for d in el.select(drop_selector):
+                        d.decompose()
+                parts.append(str(el))
+        return "\n".join(parts)
+    finally:
+        page.close()
 
 
 def get_session(sqlite_path):
@@ -232,7 +236,26 @@ def crawl_from_config(config):
     visited_lock = threading.Lock()
     pages_lock = threading.Lock()
 
-    def worker():
+    rate_lock = threading.Lock()
+    recent_requests = deque()
+
+    def _worker():
+        """Run a single crawl worker loop.
+
+        The worker repeatedly pulls URLs from the shared frontier queue, normalizes
+        and de-duplicates them, fetches and renders HTML with Playwright, persists
+        pages to the database, updates crawl status, and discovers and enqueues new
+        in-scope URLs. It stops when the frontier is empty for a timeout or when
+        the global max_pages limit is reached.
+
+        This function relies on shared, nonlocal state such as the frontier queue,
+        visitation tracking, rate-limiting structures, a SQLAlchemy session
+        factory, and configuration values, and is intended to be executed
+        concurrently in multiple threads or processes.
+
+        Returns:
+            None: The function runs until a termination condition is met.
+        """
         nonlocal pages_crawled
         session = get_session(session_factory_path)
         with sync_playwright() as p:
@@ -245,9 +268,7 @@ def crawl_from_config(config):
                     break
                 with pages_lock:
                     if pages_crawled >= max_pages:
-                        logging.info(
-                            "max_pages reached quitting worker",
-                        )
+                        logging.info("max_pages reached quitting worker")
                         return
                 page_url = normalize_url(page_url)
                 logging.debug(page_url)
@@ -275,6 +296,30 @@ def crawl_from_config(config):
                     error_list = []
                     while attempts < max_attempts:
                         attempts += 1
+
+                        while True:
+                            with rate_lock:
+                                now = time.monotonic()
+                                # drop all requests older than 1 second ago
+                                while (
+                                    recent_requests
+                                    and now - recent_requests[0] >= 1.0
+                                ):
+                                    recent_requests.popleft()
+                                # now recent_requests just has the number
+                                # of requests < 1 second old
+                                if (
+                                    len(recent_requests)
+                                    < config["requests_per_second"]
+                                ):
+                                    recent_requests.append(now)
+                                    sleep_for = 0.0
+                                    break
+                                sleep_for = 1.0 - (now - recent_requests[0])
+                            if sleep_for > 0:
+                                logging.info(f"sleeping for {sleep_for}s")
+                                time.sleep(sleep_for)
+
                         try:
                             html_candidate = fetch_and_filter_rendered_html(
                                 playwright_browser,
@@ -296,8 +341,7 @@ def crawl_from_config(config):
                                 or "retry later" in msg
                             )
                             logging.exception(
-                                f"error fetching {page_url} on attempt "
-                                f"{attempts}: {e}",
+                                f"error fetching {page_url} on attempt {attempts}: {e}",
                             )
                             if over_ping and attempts < max_attempts:
                                 time.sleep(delay)
@@ -393,19 +437,19 @@ def crawl_from_config(config):
             delta_t = now - last_time
             rate = delta_p / delta_t if delta_t > 0 else 0.0
             if max_pages == float("inf"):
-                pages_left = qsize
-                remaining = pages_left
+                pages_total = qsize
+                remaining = qsize
             else:
-                pages_left = max_pages
-                remaining = pages_left - done
+                pages_total = max_pages
+                remaining = pages_total - done
             eta = remaining / rate if rate > 0 else None
             if eta is None:
                 logging.info(
-                    f"frontier size={qsize}, pages_crawled={done}/{pages_left}, rate={rate:.3f} pages/s, eta=unknown"
+                    f"frontier size={qsize}, pages_crawled={done}/{pages_total}, rate={rate:.3f} pages/s, eta=unknown"
                 )
             else:
                 logging.info(
-                    f"frontier size={qsize}, pages_crawled={done}/{pages_left}, rate={rate:.3f} pages/s, eta={eta:.1f}s"
+                    f"frontier size={qsize}, pages_crawled={done}/{pages_total}, rate={rate:.3f} pages/s, eta={eta:.1f}s"
                 )
             last_pages = done
             last_time = now
@@ -418,7 +462,7 @@ def crawl_from_config(config):
     futures = []
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         for _ in range(num_workers):
-            futures.append(executor.submit(worker))
+            futures.append(executor.submit(_worker))
         for f in futures:
             f.result()
         crawl_done = True
