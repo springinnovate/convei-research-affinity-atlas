@@ -1,3 +1,10 @@
+"""Shared utility functions for the crawler package.
+
+Currently this module only exposes `parse_crawler_config`, which loads and
+normalizes crawler YAML configuration files. As the crawler grows, additional
+shared helpers should be added here to keep cross-cutting logic in one place.
+"""
+
 from pathlib import Path
 import os
 
