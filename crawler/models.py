@@ -42,6 +42,9 @@ class Page(Base):
     html = Column(Text, nullable=True)
     crawled_at = Column(DateTime, default=dt.datetime.utcnow, nullable=False)
     status = Column(Text, nullable=False)
+    # Use MutableList so in-place edits (append/remove) to this JSON list
+    # are tracked by SQLAlchemy and persisted without needing to reassign the
+    # whole list.
     entities_analyzed = Column(
         MutableList.as_mutable(JSON),
         nullable=False,
