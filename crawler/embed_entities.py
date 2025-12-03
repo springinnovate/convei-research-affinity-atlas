@@ -6,8 +6,9 @@ and writes the binary-encoded vectors back to the database. Embeddings are
 generated concurrently using a ThreadPoolExecutor to improve throughput.
 """
 
+from queue import Queue
 from array import array
-from concurrent.futures import ThreadPoolExecutor
+from threading import Thread
 from pathlib import Path
 import argparse
 import logging
@@ -89,28 +90,114 @@ def embed_entities(db_path, config_path):
     db_url = f"sqlite:///{db_path}"
     engine = create_engine(db_url)
     Session = sessionmaker(bind=engine)
+
     session = Session()
-    entities = (
-        session.query(Entity.id, Entity.text)
-        .filter(Entity.embedding.is_(None))
-        .all()
-    )
+    total = session.query(Entity).filter(Entity.embedding.is_(None)).count()
     session.close()
 
-    logging.info("Found %d entities without embeddings", len(entities))
+    logging.info("Found %d entities without embeddings", len(str(total)))
 
-    def worker(row):
-        entity_id, text = row
-        embedding_bytes = embed_text(text, config["max_fetch_retries"])
+    entity_to_process_queue = Queue()
+    entity_embedded_queue = Queue()
+    num_workers = config["num_workers"]
+
+    def database_reader():
+        """Read entities without embeddings from the database into work queue.
+
+        Opens a new SQLAlchemy session, streams all Entity rows that do not yet
+        have an embedding, and enqueues each (entity_id, text) pair onto
+        entity_to_process_queue. After all entities are enqueued, a None
+        is placed into the queue once per worker to signal completion.
+
+        This function is intended to run in a dedicated background thread.
+        """
         session = Session()
-        entity = session.get(Entity, entity_id)
-        entity.embedding = embedding_bytes
-        session.commit()
+        entities = session.query(Entity.id, Entity.text).filter(
+            Entity.embedding.is_(None)
+        )
+        for entity_id, text in entities:
+            entity_to_process_queue.put((entity_id, text))
+        for _ in range(num_workers):
+            entity_to_process_queue.put(None)
         session.close()
-        return entity_id
 
-    with ThreadPoolExecutor(max_workers=config["num_workers"]) as executor:
-        list(tqdm(executor.map(worker, entities), total=len(entities)))
+    def database_writer():
+        """Write generated embeddings from the result queue back to database.
+
+        Opens a new SQLAlchemy session and continuously consumes
+        (entity_id, embedding_bytes) pairs from entity_embedded_queue, updating
+        the corresponding Entity.embedding field and committing each change.
+        A None payload is treated as a sentinel from a worker; once a sentinel
+        has been received from each worker, the writer exits.
+
+        This function is intended to run in a dedicated background thread.
+        """
+        session = Session()
+        finished = 0
+        while True:
+            payload = entity_embedded_queue.get()
+            if payload is None:
+                finished += 1
+                entity_embedded_queue.task_done()
+                if finished == num_workers:
+                    break
+                continue
+            entity_id, embedding_bytes = payload
+            entity = session.get(Entity, entity_id)
+            entity.embedding = embedding_bytes
+            session.commit()
+            entity_embedded_queue.task_done()
+        session.close()
+
+    reader_thread = Thread(target=database_reader)
+    writer_thread = Thread(target=database_writer)
+
+    reader_thread.start()
+    writer_thread.start()
+
+    with tqdm(total=total) as pbar:
+
+        def embedding_worker():
+            """Generate embeddings for queued entities in a worker thread.
+
+            This worker repeatedly pulls (entity_id, text) tuples from
+            entity_to_process_queue, generates an embedding for each text using
+            embed_text, and pushes (entity_id, embedding_bytes) results into
+            entity_embedded_queue. A None payload is treated as a sentinel value
+            indicating no more work; upon receiving it, the worker forwards a
+            None sentinel to the output queue and exits. Progress is tracked by
+            incrementing the shared tqdm progress bar.
+
+            This function does not take any arguments and is intended to be run
+            in one or more background threads.
+            """
+            while True:
+                payload = entity_to_process_queue.get()
+                if payload is None:
+                    entity_to_process_queue.task_done()
+                    entity_embedded_queue.put(None)
+                    break
+                entity_id, text = payload
+                embedding_bytes = embed_text(
+                    text,
+                    config["max_fetch_retries"],
+                )
+                entity_embedded_queue.put((entity_id, embedding_bytes))
+                entity_to_process_queue.task_done()
+                pbar.update(1)
+
+        threads = []
+        for _ in range(num_workers):
+            t = Thread(target=embedding_worker)
+            t.start()
+            threads.append(t)
+        for t in threads:
+            t.join()
+
+    reader_thread.join()
+    entity_to_process_queue.join()
+    entity_embedded_queue.join()
+    writer_thread.join()
 
     logging.info("Completed embedding backfill")
 
