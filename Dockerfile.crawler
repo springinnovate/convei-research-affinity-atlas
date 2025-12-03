@@ -4,14 +4,16 @@ FROM python:3.11-slim
 WORKDIR /app
 
 RUN pip install --no-cache-dir \
-    pyyaml \
-    beautifulsoup4 \
-    lxml \
-    requests \
-    playwright \
     alembic \
+    beautifulsoup4 \
     dotenv \
+    lxml \
     openai \
-    sqlalchemy && python -m playwright install --with-deps chromium
+    playwright \
+    pyyaml \
+    requests \
+    sqlalchemy \
+    tqdm \
+    && python -m playwright install --with-deps chromium
 
 CMD ["bash"]
