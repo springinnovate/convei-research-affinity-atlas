@@ -9,10 +9,9 @@ RUN pip install --no-cache-dir \
     lxml \
     requests \
     playwright \
+    alembic \
+    dotenv \
+    openai \
     sqlalchemy && python -m playwright install --with-deps chromium
-
-RUN pip install alembic
-
-RUN pip install dotenv openai
 
 CMD ["bash"]
