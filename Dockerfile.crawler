@@ -13,4 +13,6 @@ RUN pip install --no-cache-dir \
 
 RUN pip install alembic
 
+RUN pip install dotenv openai
+
 CMD ["bash"]
