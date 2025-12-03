@@ -26,7 +26,7 @@ from models import Page, Entity
 from utils import parse_crawler_config
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s [%(levelname)s] [line %(lineno)d] %(message)s",
 )
 
