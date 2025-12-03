@@ -21,6 +21,7 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.ext.mutable import MutableList
 import datetime as dt
 
 Base = declarative_base()
@@ -41,7 +42,11 @@ class Page(Base):
     html = Column(Text, nullable=True)
     crawled_at = Column(DateTime, default=dt.datetime.utcnow, nullable=False)
     status = Column(Text, nullable=False)
-    entities_analyzed = Column(JSON, nullable=True, default=list)
+    entities_analyzed = Column(
+        MutableList.as_mutable(JSON),
+        nullable=False,
+        default=list,
+    )
     entities = relationship("Entity", back_populates="page")
     IN_PROGRESS = "IN_PROGRESS"
     SUCCESS = "SUCCESS"
