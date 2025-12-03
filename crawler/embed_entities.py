@@ -4,12 +4,6 @@ This module scans the database for Entity rows that are missing embeddings,
 generates embeddings for their text fields using the OpenAI embeddings API,
 and writes the binary-encoded vectors back to the database. Embeddings are
 generated concurrently using a ThreadPoolExecutor to improve throughput.
-
-Attributes:
-    CLIENT: OpenAI client instance used to generate embeddings.
-    Session: SQLAlchemy session factory bound to the DATABASE_URL engine.
-    NUM_WORKERS: Maximum number of concurrent worker threads used for embedding.
-    EMBEDDING_MODEL: OpenAI embedding model identifier used for generation.
 """
 
 from array import array
@@ -37,12 +31,10 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 load_dotenv()
 CLIENT = OpenAI(timeout=600.0)
 
-NUM_WORKERS = 32
 EMBEDDING_MODEL = "text-embedding-3-small"
-MAX_EMBED_RETRIES = 5
 
 
-def embed_text(text, model, max_retries):
+def embed_text(text, max_retries):
     """Generate and serialize an embedding for the given text.
 
     Uses the given OpenAI embedding model to create a vector
@@ -52,7 +44,6 @@ def embed_text(text, model, max_retries):
 
     Args:
         text: The input text to embed.
-        model: The embedding model identifier to use for generation.
         max_retries: Maximum number of retry attempts for the API call.
 
     Returns:
@@ -63,7 +54,7 @@ def embed_text(text, model, max_retries):
     for attempt in range(max_retries):
         try:
             resp = CLIENT.embeddings.create(
-                model=model,
+                model=EMBEDDING_MODEL,
                 input=text,
             )
             vec = resp.data[0].embedding
@@ -102,7 +93,6 @@ def embed_entities(db_path, config_path):
     entities = (
         session.query(Entity.id, Entity.text)
         .filter(Entity.embedding.is_(None))
-        .limit(10)
         .all()
     )
     session.close()
@@ -111,11 +101,7 @@ def embed_entities(db_path, config_path):
 
     def worker(row):
         entity_id, text = row
-        embedding_bytes = embed_text(
-            text, EMBEDDING_MODEL, config["max_fetch_retries"]
-        )
-        engine = create_engine(db_url)
-        Session = sessionmaker(bind=engine)
+        embedding_bytes = embed_text(text, config["max_fetch_retries"])
         session = Session()
         entity = session.get(Entity, entity_id)
         entity.embedding = embedding_bytes
@@ -143,8 +129,11 @@ def main():
             embedding settings and worker configuration.
     """
     parser = argparse.ArgumentParser(
-        description="Extract entities from pages using OpenAI and store them in the database.",
+        description=(
+            "Backfill OpenAI embeddings for entities stored in the database."
+        ),
     )
+
     parser.add_argument(
         "db_path", type=Path, help="Path to the SQLite database file"
     )
