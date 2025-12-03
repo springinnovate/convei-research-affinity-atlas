@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from tqdm.auto import tqdm
 
 from models import Page, Entity
 from utils import parse_crawler_config
@@ -29,6 +30,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] [line %(lineno)d] %(message)s",
 )
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 load_dotenv()
 os.environ["OPENAI_API_KEY"]
@@ -218,7 +220,12 @@ def extract_entities(db_path: Path, config_path: Path, model: str):
             )
     session.close()
     with ThreadPoolExecutor(max_workers=config["num_workers"]) as executor:
-        list(executor.map(extract_entities_for_page_and_type, tasks))
+        list(
+            tqdm(
+                executor.map(extract_entities_for_page_and_type, tasks),
+                total=len(tasks),
+            )
+        )
 
 
 def main():
