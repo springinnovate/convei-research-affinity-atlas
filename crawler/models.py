@@ -20,6 +20,7 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy import UniqueConstraint
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.ext.mutable import MutableList
 import datetime as dt
@@ -81,3 +82,16 @@ class Entity(Base):
 
     page_id = Column(Integer, ForeignKey("pages.id"), nullable=False)
     page = relationship("Page", back_populates="entities")
+
+
+class EntityBio(Base):
+    __tablename__ = "entity_bios"
+
+    id = Column(Integer, primary_key=True)
+    type = Column(String, index=True, nullable=False)
+    name = Column(String, index=True, nullable=False)
+    bio = Column(Text, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("type", "name", name="uq_entity_bios_type_name"),
+    )

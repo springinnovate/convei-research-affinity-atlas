@@ -7,12 +7,10 @@ generated concurrently using a ThreadPoolExecutor to improve throughput.
 """
 
 from queue import Queue, Empty
-from array import array
 from threading import Thread
 from pathlib import Path
 import argparse
 import logging
-import time
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -21,7 +19,7 @@ from sqlalchemy.orm import sessionmaker
 from tqdm import tqdm
 
 from models import Entity
-from utils import parse_crawler_config
+from utils import parse_crawler_config, embed_text
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,46 +29,6 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 load_dotenv()
 CLIENT = OpenAI(timeout=600.0)
-
-EMBEDDING_MODEL = "text-embedding-3-small"
-
-
-def embed_text(text, max_retries):
-    """Generate and serialize an embedding for the given text.
-
-    Uses the given OpenAI embedding model to create a vector
-    representation of the input text and returns it as a binary
-    blob suitable for storage in the database. The request is
-    retried with exponential backoff if the OpenAI API call fails.
-
-    Args:
-        text: The input text to embed.
-        max_retries: Maximum number of retry attempts for the API call.
-
-    Returns:
-        bytes: The embedding encoded as a float32 array in little-endian
-        binary format.
-    """
-    delay = 1.0
-    for attempt in range(max_retries):
-        try:
-            resp = CLIENT.embeddings.create(
-                model=EMBEDDING_MODEL,
-                input=text,
-            )
-            vec = resp.data[0].embedding
-            return array("f", vec).tobytes()
-        except Exception as exc:
-            logging.error(
-                "OpenAI embedding call failed, attempt %s/%s: %s",
-                attempt + 1,
-                max_retries,
-                exc,
-            )
-            if attempt == max_retries - 1:
-                raise
-            time.sleep(delay)
-            delay *= 2
 
 
 def embed_entities(db_path, config_path):
@@ -114,12 +72,14 @@ def embed_entities(db_path, config_path):
         session = Session()
         try:
             entities = (
-                session.query(Entity.id, Entity.text)
+                session.query(Entity.id, Entity.name, Entity.text)
                 .filter(Entity.embedding.is_(None))
                 .yield_per(100)
             )
-            for entity_id, text in entities:
-                entity_to_process_queue.put((entity_id, text))
+            for entity_id, name, text in entities:
+                entity_to_process_queue.put(
+                    (entity_id, f"** {name} **\n\n{text}")
+                )
             for _ in range(num_workers):
                 entity_to_process_queue.put(None)
         except Exception:
@@ -149,6 +109,7 @@ def embed_entities(db_path, config_path):
                 entity_id, text = payload
                 embedding_bytes = embed_text(
                     text,
+                    CLIENT,
                     config["max_fetch_retries"],
                 )
                 entity_embedded_queue.put((entity_id, embedding_bytes))

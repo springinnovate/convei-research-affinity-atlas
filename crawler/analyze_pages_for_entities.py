@@ -23,11 +23,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from tqdm.auto import tqdm
 
-from models import Page, Entity
+from models import Page, Entity, EntityBio
 from utils import parse_crawler_config
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] [line %(lineno)d] %(message)s",
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -228,6 +228,168 @@ def extract_entities(db_path: Path, config_path: Path, model: str):
         )
 
 
+def build_entity_bio(db_path: Path, config_path: Path, model: str):
+
+    def _worker(item):
+        (entity_name, entity_type), entity_text = item
+        prompt = f"""
+You are creating a concise but information-rich bio for a single {entity_type}.
+
+Entity type description:
+{entity_desc}
+
+Entity name:
+{entity_name}
+
+Source snippets about this {entity_type}:
+\"\"\"{entity_text}\"\"\"
+
+Write a single coherent bio for this {entity_type} that:
+- Clearly describes who or what "{entity_name}" is.
+- Captures key topics, domains, methods, regions, or roles mentioned.
+- Focuses on information that would help someone understand their work or relevance.
+- Avoids repeating identical sentences or boilerplate.
+- Is written in natural, fluent prose (a few sentences or a short paragraph).
+
+Return only the bio text, with no extra explanations or formatting.
+""".strip()
+
+        delay = 1.0
+        completion = None
+        for attempt in range(max_fetch_retries):
+            try:
+                logging.info(f"about to pass {len(prompt)} chracters to openai")
+                completion = CLIENT.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You write clear, informative bios from provided context.",
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt,
+                        },
+                    ],
+                )
+                break
+            except Exception as exc:
+                logging.error(
+                    "OpenAI bio call failed for %s '%s', attempt %s/%s: %s",
+                    entity_type,
+                    entity_name,
+                    attempt + 1,
+                    max_fetch_retries,
+                    exc,
+                )
+                if attempt == max_fetch_retries - 1:
+                    completion = None
+                    break
+                time.sleep(delay)
+                delay *= 2
+
+        if completion is None:
+            logging.warning(
+                "Skipping bio for %s '%s' after repeated failures",
+                entity_type,
+                entity_name,
+            )
+            return
+
+        bio_text = completion.choices[0].message.content.strip()
+        if not bio_text:
+            logging.warning(
+                "Empty bio generated for %s '%s', skipping",
+                entity_type,
+                entity_name,
+            )
+            return
+
+        s = Session()
+        try:
+            existing = (
+                s.query(EntityBio)
+                .filter(
+                    EntityBio.type == entity_type,
+                    EntityBio.name == entity_name,
+                )
+                .one_or_none()
+            )
+            if existing:
+                existing.bio = bio_text
+                logging.info(
+                    "Updated bio for %s '%s'",
+                    entity_type,
+                    entity_name,
+                )
+            else:
+                bio = EntityBio(
+                    type=entity_type,
+                    name=entity_name,
+                    bio=bio_text,
+                )
+                s.add(bio)
+                logging.info(
+                    "Created bio for %s '%s'",
+                    entity_type,
+                    entity_name,
+                )
+            s.commit()
+        finally:
+            s.close()
+
+    db_url = f"sqlite:///{db_path}"
+    engine = create_engine(db_url)
+    Session = sessionmaker(bind=engine)
+
+    session = Session()
+    name_type_tuples = session.query(Entity.name, Entity.type).distinct().all()
+    texts_by_name_type = {}
+    config = parse_crawler_config(config_path)
+    entity_desc = {}
+    for entity_config in config["entities"]:
+        entity_desc[entity_config["type"]] = entity_config["description"]
+    max_fetch_retries = config["max_fetch_retries"]
+    num_workers = config["num_workers"]
+
+    for entity_name, entity_type in name_type_tuples:
+        entity_bio_exists = (
+            session.query(EntityBio.id)
+            .filter(
+                EntityBio.name == entity_name,
+                EntityBio.type == entity_type,
+            )
+            .first()
+        )
+
+        if entity_bio_exists:
+            continue
+
+        texts_by_name_type[(entity_name, entity_type)] = "\n".join(
+            x[0]
+            for x in session.query(Entity.text)
+            .filter(
+                Entity.name == entity_name,
+                Entity.type == entity_type,
+            )
+            .all()
+        )
+
+    session.close()
+    logging.info(
+        "Building bios for %d unique entities",
+        len(entity_desc),
+    )
+
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        list(
+            tqdm(
+                executor.map(_worker, texts_by_name_type.items()),
+                total=len(texts_by_name_type),
+            )
+        )
+
+
 def main():
     """Parse CLI arguments and run entity extraction for a given database.
 
@@ -256,7 +418,8 @@ def main():
         "--model", default="gpt-5-mini", help="OpenAI model name"
     )
     args = parser.parse_args()
-    extract_entities(args.db_path, args.config_path, model=args.model)
+    # extract_entities(args.db_path, args.config_path, model=args.model)
+    build_entity_bio(args.db_path, args.config_path, args.model)
 
 
 if __name__ == "__main__":

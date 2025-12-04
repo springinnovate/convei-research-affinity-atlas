@@ -1,4 +1,6 @@
 agu2025_crawl:
+  app_title: <a href="https://agu.confex.com/agu/agu25/meetingapp.cgi/Home/0">AGU 2025</a> CONVEI Research Affinity Atlas
+
   # Where to start crawling
   start_urls:
     - https://agu.confex.com/agu/agu25/meetingapp.cgi/Day/2025-12-15

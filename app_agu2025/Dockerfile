@@ -1,28 +1,32 @@
-# Run command:
-# docker build -t craa . && docker run --rm -it -v %CD%/data:/app/data -v %CD%/src:/app/src -p 8000:8000 craa
+#docker build -f Dockerfile.crawler -t crawl_env . && docker run --rm -it -v %CD%:/app crawl_env
+FROM python:3.11-slim
 
-FROM python:3.11-slim-bookworm
-
-ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
-    git build-essential wget curl unzip \
-    libnss3 libnspr4 libatk-bridge2.0-0 libcups2 libdbus-1-3 libxkbcommon0 libgtk-3-0 libgbm1 \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --upgrade pip poetry
+RUN pip install --no-cache-dir \
+    alembic \
+    beautifulsoup4 \
+    python-dotenv \
+    lxml \
+    openai \
+    playwright \
+    pyyaml \
+    requests \
+    sqlalchemy \
+    tqdm \
+    faiss-cpu \
+    fastapi \
+    uvicorn[standard] \
+    jinja2
 
-COPY pyproject.toml poetry.lock* ./
 
-RUN poetry config virtualenvs.create false \
-    && poetry install --no-root --without dev
-RUN playwright install chromium --with-deps
-
-RUN pip install tiktoken
-
-COPY .env .env
-
+# Expose FastAPI port
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Launch FastAPI app
+# Adjust "main:app" if your entrypoint module is named differently
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

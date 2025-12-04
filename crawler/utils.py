@@ -7,8 +7,16 @@ shared helpers should be added here to keep cross-cutting logic in one place.
 
 from pathlib import Path
 import os
+import time
+from array import array
+import logging
 
+from dotenv import load_dotenv
 import yaml
+
+load_dotenv()
+
+EMBEDDING_MODEL = "text-embedding-3-small"
 
 
 def parse_crawler_config(yaml_config_path):
@@ -72,3 +80,41 @@ def parse_crawler_config(yaml_config_path):
         "max_fetch_retries": section["max_fetch_retries"],
         "entities": section["entities"],
     }
+
+
+def embed_text(text, client, max_retries):
+    """Generate and serialize an embedding for the given text.
+
+    Uses the given OpenAI embedding model to create a vector
+    representation of the input text and returns it as a binary
+    blob suitable for storage in the database. The request is
+    retried with exponential backoff if the OpenAI API call fails.
+
+    Args:
+        text: The input text to embed.
+        max_retries: Maximum number of retry attempts for the API call.
+
+    Returns:
+        bytes: The embedding encoded as a float32 array in little-endian
+        binary format.
+    """
+    delay = 1.0
+    for attempt in range(max_retries):
+        try:
+            resp = client.embeddings.create(
+                model=EMBEDDING_MODEL,
+                input=text,
+            )
+            vec = resp.data[0].embedding
+            return array("f", vec).tobytes()
+        except Exception as exc:
+            logging.error(
+                "OpenAI embedding call failed, attempt %s/%s: %s",
+                attempt + 1,
+                max_retries,
+                exc,
+            )
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(delay)
+            delay *= 2

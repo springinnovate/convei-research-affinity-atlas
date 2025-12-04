@@ -1,47 +1,43 @@
-"""Entrypoint for CONVEI research affinity atlas app."""
-
 import os
-from datetime import timezone
-from typing import Any, Dict, List, Optional, Tuple
-import asyncio
-import logging
-import sys
-import uuid
-
 from pathlib import Path
-import uvicorn
-from fastapi import Depends
-from sqlalchemy.orm import Session
-from fastapi import FastAPI, Request
-from fastapi.templating import Jinja2Templates
+from typing import Any, Dict, List, Optional
+from concurrent.futures import ThreadPoolExecutor
+from uuid import uuid4
+
+import faiss
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi import HTTPException
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from fastapi import Query
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+import uvicorn
+from dotenv import load_dotenv
 
+load_dotenv()
 
-from database import SessionLocal, init_db
-from models import Entity, ProcessedFile
-from llm_analyzer import (
-    generate_bios,
-    _cached_llm_chunk_match,
-    _merge_matches,
-    _enc,
+from models import Entity
+from utils import (
+    parse_crawler_config,
+    load_embedding_index,
+    build_index,
+    build_entity_context_for_query,
+    analyze_results_by_name,
 )
-
-logging.basicConfig(
-    level=logging.DEBUG,
-    stream=sys.stdout,
-    format=(
-        "%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s"
-        " [%(funcName)s:%(lineno)d] %(message)s"
-    ),
-)
-LOGGER = logging.getLogger(__name__)
-
-logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 BASE_DIR = Path(__file__).resolve().parent
+
+DB_URL: Optional[str] = None
+ENGINE = None
+SessionLocal = None
+CONFIG: Dict[str, Any] = {}
+EMBEDDING_INDEX = None
+ENTITY_IDS: List[int] = []
+
+INDEX_PATH = BASE_DIR / "entity_index.faiss"
+
+executor = ThreadPoolExecutor(max_workers=4)
+JOBS: Dict[str, Dict[str, Any]] = {}
 
 app = FastAPI()
 app.mount(
@@ -49,114 +45,6 @@ app.mount(
 )
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.auto_reload = True
-
-PROGRESS_STORE: Dict[str, Dict[str, Any]] = {}
-RESULT_STORE: Dict[str, Dict[str, Any]] = {}
-STORE_LOCK = asyncio.Lock()
-
-TUPLES_PER_CHUNK = 250  # simple tuple-based chunking
-
-
-class StartRequest(BaseModel):
-    query: str
-
-
-class ProgressResponse(BaseModel):
-    job_id: str
-    done: int
-    total: int
-    status: str  # running|done|error
-    message: Optional[str] = None
-
-
-class ResultResponse(BaseModel):
-    query: str
-    matches: List[Dict[str, Any]]
-    notes: Optional[str] = None
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-@app.on_event("startup")
-async def startup_event():
-    init_db()
-    input_json_path = os.environ.get("INPUT_JSON_PATH", None)
-    if input_json_path is None:
-        raise ValueError("undefined INPUT_JSON_PATH env variable")
-    db = SessionLocal()
-    await generate_bios(input_json_path, db)
-
-
-@app.get("/")
-async def read_root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
-
-@app.get("/get_info/")
-def get_info(db: Session = Depends(get_db)):
-    pf = (
-        db.query(ProcessedFile)
-        .order_by(ProcessedFile.processed_at.desc())
-        .first()
-    )
-    if not pf:
-        return {"dbInfo": "Database not initialized yet."}
-
-    ts = pf.processed_at
-    # fall back if naive
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
-
-    return {
-        "dbInfo": f"Database created from {pf.filename} at {ts.isoformat()}"
-    }
-
-
-@app.get("/entities/")
-async def list_entities():
-    db = SessionLocal()
-    try:
-        entities = db.query(Entity).all()
-        names = [p.name for p in entities if p.name]
-
-        # sort by last name (case-insensitive)
-        sorted_names = sorted(
-            set(names), key=lambda n: n.strip().split()[-1].lower()
-        )
-
-        return {"entities": sorted_names}
-    finally:
-        db.close()
-
-
-class PersonRequest(BaseModel):
-    person_name: str
-
-
-class CrawlRequest(BaseModel):
-    url: str
-    max_pages: int
-    url_pattern: str
-    required_text: str
-
-
-@app.post("/person/bio")
-def get_person_bio(payload: PersonRequest, db: Session = Depends(get_db)):
-    entity = db.query(Entity).filter(Entity.name == payload.person_name).first()
-    if not entity:
-        raise HTTPException(status_code=404, detail="Person not found")
-
-    return {
-        "name": entity.name,
-        "bio": entity.bio,
-        "url_list": entity.url_list or [],
-    }
 
 
 class SearchRequest(BaseModel):
@@ -169,175 +57,202 @@ class SearchResponse(BaseModel):
     notes: Optional[str] = None
 
 
-MAX_TOKENS_PER_CHUNK = 9000
+class SearchJobResponse(BaseModel):
+    job_id: str
 
 
-@app.post("/people/search", response_model=SearchResponse)
-async def people_search(req: SearchRequest, db: Session = Depends(get_db)):
-    query = (req.query or "").strip()
-    if not query:
-        raise HTTPException(status_code=400, detail="Empty query")
-
-    rows: List[Entity] = db.query(Entity).all()
-    # TODO: limit 10 for debugging
-    # rows: List[Entity] = db.query(Entity).limit(10).all()
-    candidates: List[Tuple[str, str]] = [
-        (r.name, r.bio or "") for r in rows if r.name
-    ]
-
-    current_tokens = 0
-    current_chunk = []
-    chunks = []
-
-    for name, bio in candidates:
-        pair_text = f"Name: {name}\nBio:\n{bio}\n"
-        LOGGER.debug(pair_text)
-        tokens = len(_enc.encode(pair_text))  # using tiktoken encoder
-
-        if current_tokens + tokens > MAX_TOKENS_PER_CHUNK and current_chunk:
-            chunks.append(current_chunk)
-            current_chunk = []
-            current_tokens = 0
-
-        current_chunk.append((name, bio))
-        current_tokens += tokens
-
-    if current_chunk:
-        chunks.append(current_chunk)
-
-    # run chunks with bounded concurrency
-    sem = asyncio.Semaphore(8)
-
-    async def run_chunk(ch: List[Tuple[str, str]]) -> Optional[Dict[str, Any]]:
-        async with sem:
-            try:
-                LOGGER.info(f"running chunk that's {len(ch)} long")
-                return await _cached_llm_chunk_match(query, ch)
-            except Exception as e:
-                LOGGER.warning(f"failure on {query} {ch} {e}")
-                return None
-
-    tasks = [run_chunk(ch) for ch in chunks]
-    payloads = await asyncio.gather(*tasks)
-
-    merged = _merge_matches([p for p in payloads if p], query)
-    return merged
+class SearchProgressResponse(BaseModel):
+    job_id: str
+    done: int
+    total: int
+    status: str
+    message: Optional[str] = None
 
 
-async def _run_search_job(job_id: str, query: str):
-    # each job uses its own DB session
+def get_db():
     db = SessionLocal()
     try:
-        rows: List[Entity] = db.query(Entity).order_by(Entity.name).all()
-        candidates: List[Tuple[str, str]] = [
-            (r.name, r.bio or "") for r in rows if r.name
-        ]
-
-        # build chunks
-        chunks: List[List[Tuple[str, str]]] = []
-        buf: List[Tuple[str, str]] = []
-        for pair in candidates:
-            buf.append(pair)
-            if len(buf) >= TUPLES_PER_CHUNK:
-                chunks.append(buf)
-                buf = []
-        if buf:
-            chunks.append(buf)
-
-        async with STORE_LOCK:
-            PROGRESS_STORE[job_id] = {
-                "job_id": job_id,
-                "done": 0,
-                "total": len(chunks),
-                "status": "running",
-                "message": None,
-            }
-
-        sem = asyncio.Semaphore(8)
-
-        async def run_chunk(ch):
-            async with sem:
-                try:
-                    payload = await _cached_llm_chunk_match(db, query, ch)
-                except Exception as e:
-                    LOGGER.exception(f"error on {ch}")
-                    payload = None
-                finally:
-                    async with STORE_LOCK:
-                        st = PROGRESS_STORE.get(job_id)
-                        if st:
-                            st["done"] = min(st["done"] + 1, st["total"])
-                return payload
-
-        payloads = await asyncio.gather(*[run_chunk(ch) for ch in chunks])
-        merged = _merge_matches([p for p in payloads if p], query)
-
-        async with STORE_LOCK:
-            RESULT_STORE[job_id] = merged
-            st = PROGRESS_STORE.get(job_id)
-            if st:
-                st["status"] = "done"
-                st["message"] = None
-
-    except Exception as e:
-        async with STORE_LOCK:
-            st = PROGRESS_STORE.setdefault(
-                job_id,
-                {
-                    "job_id": job_id,
-                    "done": 0,
-                    "total": 0,
-                    "status": "error",
-                    "message": str(e),
-                },
-            )
-            st["status"] = "error"
-            st["message"] = str(e)
+        yield db
     finally:
         db.close()
 
 
-@app.post("/people/search/start")
-async def start_people_search(req: StartRequest):
-    q = (req.query or "").strip()
-    if not q:
+@app.on_event("startup")
+async def startup_event():
+    global DB_URL, ENGINE, SessionLocal, CONFIG, EMBEDDING_INDEX, ENTITY_IDS
+
+    config_path = os.environ.get("CONFIG_PATH")
+    db_path = os.environ.get("DB_PATH")
+    if not config_path or not db_path:
+        raise RuntimeError(
+            "CONFIG_PATH and DB_PATH environment variables must be set"
+        )
+
+    CONFIG = parse_crawler_config(Path(config_path))
+
+    DB_URL = f"sqlite:///{db_path}"
+    ENGINE = create_engine(
+        DB_URL,
+        connect_args={"check_same_thread": False},
+    )
+    SessionLocal = sessionmaker(bind=ENGINE, autoflush=False, autocommit=False)
+
+    ENTITY_IDS, embedding_vectors = load_embedding_index(DB_URL)
+
+    if not INDEX_PATH.exists():
+        EMBEDDING_INDEX = build_index(embedding_vectors)
+        faiss.write_index(EMBEDDING_INDEX, str(INDEX_PATH))
+    else:
+        EMBEDDING_INDEX = faiss.read_index(str(INDEX_PATH))
+
+
+@app.get("/")
+async def read_root(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/entities/")
+async def list_entities(db: Session = Depends(get_db)):
+    rows: List[Entity] = db.query(Entity).all()
+    name_type_pairs = [(r.name, r.type) for r in rows if r.name]
+
+    unique_pairs = {(name, etype) for name, etype in name_type_pairs}
+    sorted_pairs = sorted(
+        unique_pairs,
+        key=lambda p: p[0].strip().split()[-1].lower(),
+    )
+
+    entities = [{"name": name, "type": etype} for name, etype in sorted_pairs]
+    return {"entities": entities}
+
+
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
+)
+
+
+@app.post("/search", response_model=SearchJobResponse)
+async def search(req: SearchRequest):
+    user_query = (req.query or "").strip()
+    if not user_query:
+        logging.info("Search request with empty query")
         raise HTTPException(status_code=400, detail="Empty query")
-    job_id = uuid.uuid4().hex
-    async with STORE_LOCK:
-        PROGRESS_STORE[job_id] = {
-            "job_id": job_id,
-            "done": 0,
-            "total": 0,
-            "status": "running",
-            "message": None,
-        }
-    asyncio.create_task(_run_search_job(job_id, q))
-    return {"job_id": job_id}
 
+    job_id = str(uuid4())
+    logging.info("Created search job %s for query: %s", job_id, user_query)
 
-@app.get("/people/search/progress", response_model=ProgressResponse)
-async def people_search_progress(job_id: str = Query(...)):
-    async with STORE_LOCK:
-        st = PROGRESS_STORE.get(job_id)
-        if not st:
-            raise HTTPException(status_code=404, detail="Unknown job_id")
-        return st
+    JOBS[job_id] = {
+        "done": 0,
+        "total": 0,
+        "status": "queued",
+        "message": "Job queued",
+        "result": None,
+        "query": user_query,
+    }
 
-
-@app.get("/people/search/result", response_model=ResultResponse)
-async def people_search_result(job_id: str = Query(...)):
-    async with STORE_LOCK:
-        res = RESULT_STORE.get(job_id)
-        st = PROGRESS_STORE.get(job_id)
-        if not st:
-            raise HTTPException(status_code=404, detail="Unknown job_id")
-        if st["status"] == "error":
-            raise HTTPException(
-                status_code=500, detail=st.get("message") or "Search failed"
+    def run_job(job_id: str):
+        job = JOBS[job_id]
+        user_query = job["query"]
+        logging.info("Starting job %s for query: %s", job_id, user_query)
+        try:
+            job["status"] = "building_context"
+            job["message"] = "Building entity context"
+            logging.info("Job %s: building entity context", job_id)
+            result_by_name = build_entity_context_for_query(
+                user_query,
+                DB_URL,
+                EMBEDDING_INDEX,
+                ENTITY_IDS,
+                CONFIG,
             )
-        if st["status"] != "done" or not res:
-            raise HTTPException(status_code=202, detail="Not ready")
-        return res
+            job["total"] = max(len(result_by_name), 1)
+            job["done"] = 1
+            logging.info(
+                "Job %s: built context for %d entities",
+                job_id,
+                len(result_by_name),
+            )
+
+            job["status"] = "analyzing"
+            job["message"] = "Analyzing entities with LLM"
+            model_name = CONFIG.get("llm_model", "gpt-5.1")
+            logging.info(
+                "Job %s: analyzing entities with model %s", job_id, model_name
+            )
+            analyses = analyze_results_by_name(
+                result_by_name,
+                user_query,
+                model_name,
+                CONFIG["max_fetch_retries"],
+                max_workers=len(result_by_name),
+            )
+            logging.info(
+                "Job %s: analysis complete, %d matches",
+                job_id,
+                len(analyses),
+            )
+
+            resp = SearchResponse(
+                query=user_query,
+                matches=list(analyses.values()),
+                notes=None,
+            )
+            job["result"] = resp.dict()
+            job["done"] = job["total"]
+            job["status"] = "done"
+            job["message"] = "Job completed"
+            logging.info("Job %s: completed successfully", job_id)
+        except Exception as exc:
+            job["status"] = "error"
+            job["message"] = f"Job failed: {exc}"
+            job["result"] = None
+            logging.exception("Job %s: failed with exception", job_id)
+
+    executor.submit(run_job, job_id)
+    logging.info("Submitted job %s to executor", job_id)
+    return SearchJobResponse(job_id=job_id)
+
+
+@app.get("/search_progress", response_model=SearchProgressResponse)
+async def search_progress(job_id: str):
+    job = JOBS.get(job_id)
+    if not job:
+        logging.info("Progress requested for unknown job_id %s", job_id)
+        raise HTTPException(status_code=404, detail="Job not found")
+    logging.debug(
+        "Progress for job %s: done=%s total=%s status=%s",
+        job_id,
+        job.get("done", 0),
+        job.get("total", 0),
+        job.get("status", "unknown"),
+    )
+    return SearchProgressResponse(
+        job_id=job_id,
+        done=job.get("done", 0),
+        total=job.get("total", 0),
+        status=job.get("status", "unknown"),
+        message=job.get("message"),
+    )
+
+
+@app.get("/search_result", response_model=SearchResponse)
+async def search_result(job_id: str):
+    job = JOBS.get(job_id)
+    if not job:
+        logging.info("Result requested for unknown job_id %s", job_id)
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.get("status") != "done" or job.get("result") is None:
+        logging.info(
+            "Result requested for incomplete job %s (status=%s)",
+            job_id,
+            job.get("status"),
+        )
+        raise HTTPException(status_code=202, detail="Job not finished")
+    logging.info("Returning result for job %s", job_id)
+    return SearchResponse(**job["result"])
 
 
 if __name__ == "__main__":

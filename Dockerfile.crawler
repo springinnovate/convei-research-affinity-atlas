@@ -16,4 +16,7 @@ RUN pip install --no-cache-dir \
     tqdm \
     && python -m playwright install --with-deps chromium
 
+
+RUN pip install faiss-cpu
+
 CMD ["bash"]
