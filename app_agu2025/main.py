@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
+import logging
 
 import faiss
 from fastapi import FastAPI, Depends, HTTPException, Request
@@ -14,16 +15,22 @@ from sqlalchemy.orm import Session, sessionmaker
 import uvicorn
 from dotenv import load_dotenv
 
-load_dotenv()
 
-from models import Entity
-from utils import (
+from crawler.models import EntityBio
+from crawler.utils import (
     parse_crawler_config,
     load_embedding_index,
     build_index,
     build_entity_context_for_query,
     analyze_results_by_name,
 )
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
+)
+
+load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -113,25 +120,20 @@ async def read_root(request: Request):
 
 @app.get("/entities/")
 async def list_entities(db: Session = Depends(get_db)):
-    rows: List[Entity] = db.query(Entity).all()
-    name_type_pairs = [(r.name, r.type) for r in rows if r.name]
+    rows = (
+        db.query(EntityBio.name, EntityBio.type)
+        .filter(EntityBio.name.isnot(None))
+        .all()
+    )
 
-    unique_pairs = {(name, etype) for name, etype in name_type_pairs}
     sorted_pairs = sorted(
-        unique_pairs,
+        rows,
         key=lambda p: p[0].strip().split()[-1].lower(),
     )
 
     entities = [{"name": name, "type": etype} for name, etype in sorted_pairs]
+
     return {"entities": entities}
-
-
-import logging
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
-)
 
 
 @app.post("/search", response_model=SearchJobResponse)

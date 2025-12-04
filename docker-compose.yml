@@ -6,6 +6,7 @@ services:
     volumes:
       - ./app_agu2025/data:/app/data
       - ./app_agu2025:/app
+      - ./crawler:/app/crawler
     environment:
       PYTHONUNBUFFERED: '1'
     labels:
