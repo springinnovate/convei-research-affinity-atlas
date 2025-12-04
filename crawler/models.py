@@ -85,6 +85,23 @@ class Entity(Base):
 
 
 class EntityBio(Base):
+    """Canonical bio text aggregated per logical entity.
+
+    This table stores a single synthesized bio for each unique (type, name)
+    pair found in the entities table, such as a person or session. Bios are
+    intended to be stable, human-readable summaries built from one or more
+    underlying Entity rows and used for display and search.
+
+    Attributes:
+        id: Surrogate primary key.
+        type: Logical category of the entity (for example, 'Person', 'Session').
+        name: Human-readable label of the entity.
+        bio: Aggregated, free-form bio text describing the entity.
+
+    The (type, name) pair is enforced to be unique so that each logical
+    entity has at most one canonical bio.
+    """
+
     __tablename__ = "entity_bios"
 
     id = Column(Integer, primary_key=True)

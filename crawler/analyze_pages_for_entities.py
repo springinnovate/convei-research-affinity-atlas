@@ -10,6 +10,7 @@ exception guarding for robustness in worker threads.
 
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from collections import defaultdict
 import argparse
 import functools
 import json
@@ -27,7 +28,7 @@ from models import Page, Entity, EntityBio
 from utils import parse_crawler_config
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s [%(levelname)s] [line %(lineno)d] %(message)s",
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -258,7 +259,6 @@ Return only the bio text, with no extra explanations or formatting.
         completion = None
         for attempt in range(max_fetch_retries):
             try:
-                logging.info(f"about to pass {len(prompt)} chracters to openai")
                 completion = CLIENT.chat.completions.create(
                     model=model,
                     messages=[
@@ -317,7 +317,7 @@ Return only the bio text, with no extra explanations or formatting.
             )
             if existing:
                 existing.bio = bio_text
-                logging.info(
+                logging.debug(
                     "Updated bio for %s '%s'",
                     entity_type,
                     entity_name,
@@ -329,7 +329,7 @@ Return only the bio text, with no extra explanations or formatting.
                     bio=bio_text,
                 )
                 s.add(bio)
-                logging.info(
+                logging.debug(
                     "Created bio for %s '%s'",
                     entity_type,
                     entity_name,
@@ -343,37 +343,34 @@ Return only the bio text, with no extra explanations or formatting.
     Session = sessionmaker(bind=engine)
 
     session = Session()
-    name_type_tuples = session.query(Entity.name, Entity.type).distinct().all()
     texts_by_name_type = {}
     config = parse_crawler_config(config_path)
     entity_desc = {}
-    for entity_config in config["entities"]:
+    for entity_config in tqdm(
+        config["entities"], desc="building entity descriptions"
+    ):
         entity_desc[entity_config["type"]] = entity_config["description"]
     max_fetch_retries = config["max_fetch_retries"]
     num_workers = config["num_workers"]
 
-    for entity_name, entity_type in name_type_tuples:
-        entity_bio_exists = (
-            session.query(EntityBio.id)
-            .filter(
-                EntityBio.name == entity_name,
-                EntityBio.type == entity_type,
-            )
-            .first()
-        )
+    existing_pairs = set(session.query(EntityBio.name, EntityBio.type).all())
 
-        if entity_bio_exists:
+    # 2) Get all Entity rows whose (name, type) do NOT have a bio yet
+    rows = (
+        session.query(Entity.name, Entity.type, Entity.text)
+        .filter(Entity.text.isnot(None))
+        .all()
+    )
+
+    texts_by_name_type = defaultdict(list)
+
+    for entity_name, entity_type, text in rows:
+        if (entity_name, entity_type) in existing_pairs:
             continue
+        texts_by_name_type[(entity_name, entity_type)].append(text)
 
-        texts_by_name_type[(entity_name, entity_type)] = "\n".join(
-            x[0]
-            for x in session.query(Entity.text)
-            .filter(
-                Entity.name == entity_name,
-                Entity.type == entity_type,
-            )
-            .all()
-        )
+    for key, texts in texts_by_name_type.items():
+        texts_by_name_type[key] = "\n".join(texts)
 
     session.close()
     logging.info(
@@ -386,6 +383,7 @@ Return only the bio text, with no extra explanations or formatting.
             tqdm(
                 executor.map(_worker, texts_by_name_type.items()),
                 total=len(texts_by_name_type),
+                desc="processing openapi calls",
             )
         )
 
@@ -415,7 +413,7 @@ def main():
         help='Path to YAML config with an "entities" list',
     )
     parser.add_argument(
-        "--model", default="gpt-5-mini", help="OpenAI model name"
+        "--model", default="gpt-4o-mini", help="OpenAI model name"
     )
     args = parser.parse_args()
     # extract_entities(args.db_path, args.config_path, model=args.model)
