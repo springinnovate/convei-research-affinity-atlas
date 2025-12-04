@@ -230,8 +230,35 @@ def extract_entities(db_path: Path, config_path: Path, model: str):
 
 
 def build_entity_bio(db_path: Path, config_path: Path, model: str):
+    """Generate canonical bios for entities and store them in the database.
+
+    Loads configuration and entity records from the database, groups
+    Entity rows by (name, type), and builds a single merged context string
+    per logical entity. For each (name, type) pair that does not yet have
+    an EntityBio row, a bio is generated via an OpenAI chat model in
+    parallel using a thread pool and upserted into the EntityBio table.
+
+    Args:
+        db_path: Path to the SQLite database file containing Entity data.
+        config_path: Path to the crawler configuration file, used to load
+            entity type descriptions and concurrency/retry settings.
+        model: Chat model identifier to use for bio generation.
+    """
 
     def _worker(item):
+        """Generate and persist a bio for a single (name, type) entity.
+
+        Takes a single ((entity_name, entity_type), entity_text) pair,
+        constructs a prompt using the appropriate entity type description
+        and merged context text, and calls the OpenAI chat model to
+        synthesize a concise, information-rich bio. The resulting bio is
+        written to the EntityBio table, updating an existing row for the
+        same (type, name) or creating a new one if none exists.
+
+        This function is intended to be executed in parallel via a
+        ThreadPoolExecutor and relies on configuration and SQLAlchemy
+        session factories captured from the outer scope.
+        """
         (entity_name, entity_type), entity_text = item
         prompt = f"""
 You are creating a concise but information-rich bio for a single {entity_type}.
@@ -416,7 +443,7 @@ def main():
         "--model", default="gpt-4o-mini", help="OpenAI model name"
     )
     args = parser.parse_args()
-    # extract_entities(args.db_path, args.config_path, model=args.model)
+    extract_entities(args.db_path, args.config_path, model=args.model)
     build_entity_bio(args.db_path, args.config_path, args.model)
 
 
