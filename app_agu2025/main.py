@@ -16,7 +16,7 @@ import uvicorn
 from dotenv import load_dotenv
 
 
-from crawler.models import EntityBio
+from crawler.models import EntityBio, Page, Entity
 from crawler.utils import (
     parse_crawler_config,
     load_embedding_index,
@@ -134,6 +134,51 @@ async def list_entities(db: Session = Depends(get_db)):
     entities = [{"name": name, "type": etype} for name, etype in sorted_pairs]
 
     return {"entities": entities}
+
+
+class EntityBioRequest(BaseModel):
+    type: str
+    name: str
+
+
+class EntityBioResponse(BaseModel):
+    type: str
+    name: str
+    bio: str
+    url_list: List[str]
+
+
+@app.post("/entity_bio", response_model=EntityBioResponse)
+async def entity_bio(req: EntityBioRequest, db: Session = Depends(get_db)):
+    bio_row = (
+        db.query(EntityBio)
+        .filter(
+            EntityBio.type == req.type,
+            EntityBio.name == req.name,
+        )
+        .one_or_none()
+    )
+    if not bio_row:
+        raise HTTPException(status_code=404, detail="Bio not found")
+
+    urls = (
+        db.query(Page.url)
+        .join(Entity, Entity.page_id == Page.id)
+        .filter(
+            Entity.type == req.type,
+            Entity.name == req.name,
+        )
+        .distinct()
+        .all()
+    )
+    url_list = [u[0] for u in urls]
+
+    return EntityBioResponse(
+        type=bio_row.type,
+        name=bio_row.name,
+        bio=bio_row.bio,
+        url_list=url_list,
+    )
 
 
 @app.post("/search", response_model=SearchJobResponse)

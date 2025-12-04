@@ -14,8 +14,11 @@ agu2025_crawl:
 
   # These are CSS selectors that restrict parsing to these sections of the page.
   content_sections:
-    - article.Content.Session
-    - article.Content.Person
+    - .Content.Session
+    - .Content.Person
+    - .itemCalendar
+    - .flexItemCalendar
+    - .personListItem
 
   drop_elements:
     - path
