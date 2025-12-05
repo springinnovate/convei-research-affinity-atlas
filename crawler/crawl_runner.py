@@ -30,8 +30,8 @@ from playwright.sync_api import sync_playwright
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from models import Page
-from utils import parse_crawler_config
+from .models import Page
+from .utils import parse_crawler_config
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,7 +40,7 @@ logging.basicConfig(
 
 
 def fetch_and_filter_rendered_html(
-    browser, url, content_sections, drop_elements
+    playwright_page, url, content_sections, drop_elements
 ):
     """Fetch rendered HTML for a URL and optionally extract and clean sections.
 
@@ -51,8 +51,8 @@ def fetch_and_filter_rendered_html(
       drop_elements removed.
 
     Args:
-        browser: A Playwright :class:`Browser` instance to use for creating
-            pages.
+        playwright_page: A Playwright :class:`Page` instance to use for
+            creating visiting urls.
         url: Page URL to fetch.
         content_sections: Iterable of CSS selectors for sections to keep.
             If empty or falsy, the full rendered HTML is returned.
@@ -63,26 +63,50 @@ def fetch_and_filter_rendered_html(
         A string containing the rendered HTML or the concatenated, cleaned
         subset of the HTML defined by content_sections and drop_elements.
     """
-    page = browser.new_page()
-    try:
-        page.goto(url, wait_until="networkidle")
-        html = page.content()
-        if not content_sections:
-            return html
-        soup = BeautifulSoup(html, "lxml")
-        parts = []
-        base_tag = soup.find("base", href=True)
-        if base_tag:
-            parts.append(str(base_tag))
-        for selector in content_sections:
-            for el in soup.select(selector):
-                for drop_selector in drop_elements:
-                    for d in el.select(drop_selector):
-                        d.decompose()
-                parts.append(str(el))
-        return "\n".join(parts)
-    finally:
-        page.close()
+    playwright_page.goto(url, wait_until="networkidle", timeout=30_000)
+    html = playwright_page.content()
+    if not content_sections:
+        return html
+    soup = BeautifulSoup(html, "lxml")
+    parts = []
+    base_tag = soup.find("base", href=True)
+    if base_tag:
+        parts.append(str(base_tag))
+    logging.debug(f"raw html:\n{html}")
+    for selector in content_sections:
+        logging.debug("Trying content selector: %s", selector)
+        matches = soup.select(selector)
+        logging.debug("Selector %s matched %d elements", selector, len(matches))
+
+        for i, el in enumerate(matches):
+            logging.debug(
+                "  [%s] <%s> classes=%s id=%s text_preview=%r",
+                i,
+                el.name,
+                " ".join(el.get("class", [])),
+                el.get("id"),
+                el.get_text(strip=True)[:120],
+            )
+
+            for drop_selector in drop_elements:
+                drop_matches = el.select(drop_selector)
+                logging.debug(
+                    "    drop selector %s matched %d elements inside [%s]",
+                    drop_selector,
+                    len(drop_matches),
+                    i,
+                )
+                for j, d in enumerate(drop_matches):
+                    logging.debug(
+                        "      dropping [%s.%s] text_preview=%r",
+                        d.name,
+                        ".".join(d.get("class", [])),
+                        d.get_text(strip=True)[:80],
+                    )
+                    d.decompose()
+
+            parts.append(str(el))
+    return "\n".join(parts)
 
 
 def get_session(sqlite_path):
@@ -161,8 +185,23 @@ def crawl_from_config(config):
 
     # this is the graph term `frontier` for the front nodes to be visited
     frontier = Queue()
+    queued = set()
     for start_url in config["start_urls"]:
         frontier.put(start_url)
+
+    session = get_session(session_factory_path)
+    pages_to_retry = (
+        session.query(Page).filter(Page.status != Page.SUCCESS).all()
+    )
+    for page in pages_to_retry:
+        frontier.put(page.url)
+
+    complete_pages = (
+        session.query(Page).filter(Page.status == Page.SUCCESS).all()
+    )
+    visited = set([x.url for x in complete_pages])
+
+    session.close()
 
     # here, `visited` is the graph terminology visited rather than url visited
     # consistent with `frontier`
@@ -174,6 +213,9 @@ def crawl_from_config(config):
 
     rate_lock = threading.Lock()
     recent_requests = deque()
+
+    worker_state_lock = threading.Lock()
+    inflight_workers = 0
 
     def _worker():
         """Run a single crawl worker loop.
@@ -192,16 +234,25 @@ def crawl_from_config(config):
         Returns:
             None: The function runs until a termination condition is met.
         """
-        nonlocal pages_crawled
+        nonlocal pages_crawled, inflight_workers
         session = get_session(session_factory_path)
         with sync_playwright() as p:
             playwright_browser = p.chromium.launch(headless=True)
+            browser_context = playwright_browser.new_context()
+            playwright_page = browser_context.new_page()
             while True:
-                try:
-                    page_url = frontier.get(timeout=5.0)
-                except Empty:
-                    logging.info("frontier is empty, quitting")
-                    break
+                with worker_state_lock:
+                    try:
+                        page_url = frontier.get(timeout=0.01)
+                        inflight_workers += 1
+                    except Empty:
+                        inflight_workers -= 1
+                        if inflight_workers == 0:
+                            logging.info(
+                                "frontier empty and no active workers, quitting"
+                            )
+                            break
+                        continue
                 with pages_lock:
                     if pages_crawled >= max_pages:
                         logging.info("max_pages reached quitting worker")
@@ -258,7 +309,7 @@ def crawl_from_config(config):
 
                         try:
                             html_candidate = fetch_and_filter_rendered_html(
-                                playwright_browser,
+                                playwright_page,
                                 page_url,
                                 config["content_sections"] + ["base"],
                                 config["drop_elements"],
@@ -331,12 +382,12 @@ def crawl_from_config(config):
                     if not allowed:
                         continue
                     with visited_lock:
-                        if next_url in visited:
-                            continue
+                        if next_url not in queued and next_url not in visited:
+                            frontier.put(next_url)
+                            queued.add(next_url)
                     with pages_lock:
                         if pages_crawled >= max_pages:
                             break
-                    frontier.put(next_url)
 
     crawl_done = False
 
@@ -407,10 +458,7 @@ def crawl_from_config(config):
 def main():
     """CLI entry point."""
     parser = argparse.ArgumentParser(
-        description=(
-            "Parse a crawler YAML configuration and print the "
-            "resolved settings."
-        )
+        description=("Crawl a website based off of a YAML configuration.")
     )
     parser.add_argument(
         "config_path",
@@ -419,7 +467,14 @@ def main():
             "crawler settings."
         ),
     )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
+        help="Logging level (default: INFO).",
+    )
     args = parser.parse_args()
+    logging.basicConfig(level=getattr(logging, args.log_level))
     config = parse_crawler_config(args.config_path)
     crawl_from_config(config)
 

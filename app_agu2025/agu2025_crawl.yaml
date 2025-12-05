@@ -14,8 +14,7 @@ agu2025_crawl:
 
   # These are CSS selectors that restrict parsing to these sections of the page.
   content_sections:
-    - .Content.Session
-    - .Content.Person
+    - article.Content
     - .itemCalendar
     - .flexItemCalendar
     - .personListItem
@@ -50,7 +49,7 @@ agu2025_crawl:
   # can put an integer here to get a fixed number of additional pages
   max_pages: 'no_limit'
 
-  num_workers: 32
-  requests_per_second: 10.0
+  num_workers: 16
+  requests_per_second: 5.0
   max_fetch_retries: 5
   sqlite_path: './data/agu2025_crawl.sqlite'

@@ -10,7 +10,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, or_
 from sqlalchemy.orm import Session, sessionmaker
 import uvicorn
 from dotenv import load_dotenv
@@ -86,8 +86,9 @@ def get_db():
 
 @app.on_event("startup")
 async def startup_event():
-    global DB_URL, ENGINE, SessionLocal, CONFIG, EMBEDDING_INDEX, ENTITY_IDS
+    global DB_URL, ENGINE, SessionLocal, CONFIG, EMBEDDING_INDEX, ENTITY_IDS, MODEL_NAME
 
+    MODEL_NAME = os.environ.get("APP_LLM_MODEL")
     config_path = os.environ.get("CONFIG_PATH")
     db_path = os.environ.get("DB_PATH")
     if not config_path or not db_path:
@@ -137,7 +138,7 @@ async def list_entities(db: Session = Depends(get_db)):
 
 
 class EntityBioRequest(BaseModel):
-    type: str
+    type: Optional[str] = None
     name: str
 
 
@@ -150,27 +151,27 @@ class EntityBioResponse(BaseModel):
 
 @app.post("/entity_bio", response_model=EntityBioResponse)
 async def entity_bio(req: EntityBioRequest, db: Session = Depends(get_db)):
-    bio_row = (
-        db.query(EntityBio)
-        .filter(
-            EntityBio.type == req.type,
-            EntityBio.name == req.name,
-        )
-        .one_or_none()
-    )
+    logging.info(f"querying for {req.name}")
+    q = db.query(EntityBio).filter(EntityBio.name == req.name)
+
+    if req.type is not None:
+        q = q.filter(EntityBio.type == req.type)
+
+    bio_row = q.one_or_none()
+    logging.info(f"got this result {bio_row} for {req.name}")
     if not bio_row:
         raise HTTPException(status_code=404, detail="Bio not found")
 
-    urls = (
+    urls_q = (
         db.query(Page.url)
         .join(Entity, Entity.page_id == Page.id)
-        .filter(
-            Entity.type == req.type,
-            Entity.name == req.name,
-        )
-        .distinct()
-        .all()
+        .filter(Entity.name == req.name)
     )
+
+    if req.type is not None:
+        urls_q = urls_q.filter(Entity.type == req.type)
+
+    urls = urls_q.distinct().all()
     url_list = [u[0] for u in urls]
 
     return EntityBioResponse(
@@ -182,7 +183,7 @@ async def entity_bio(req: EntityBioRequest, db: Session = Depends(get_db)):
 
 
 @app.post("/search", response_model=SearchJobResponse)
-async def search(req: SearchRequest):
+async def search(req: SearchRequest, db: Session = Depends(get_db)):
     user_query = (req.query or "").strip()
     if not user_query:
         logging.info("Search request with empty query")
@@ -225,17 +226,25 @@ async def search(req: SearchRequest):
 
             job["status"] = "analyzing"
             job["message"] = "Analyzing entities with LLM"
-            model_name = CONFIG.get("llm_model", "gpt-5.1")
             logging.info(
-                "Job %s: analyzing entities with model %s", job_id, model_name
+                "Job %s: analyzing entities with model %s", job_id, MODEL_NAME
             )
             analyses = analyze_results_by_name(
                 result_by_name,
                 user_query,
-                model_name,
+                MODEL_NAME,
                 CONFIG["max_fetch_retries"],
                 max_workers=len(result_by_name),
             )
+            for name, value in analyses.items():
+                urls_q = (
+                    db.query(Page.url)
+                    .join(Entity, Entity.page_id == Page.id)
+                    .filter(Entity.name == name)
+                )
+                urls = urls_q.distinct().all()
+                url_list = [u[0] for u in urls]
+                value["url_list"] = url_list
             logging.info(
                 "Job %s: analysis complete, %d matches",
                 job_id,
