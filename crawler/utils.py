@@ -5,37 +5,27 @@ normalizes crawler YAML configuration files. As the crawler grows, additional
 shared helpers should be added here to keep cross-cutting logic in one place.
 """
 
-from pathlib import Path
-import os
-import time
 from array import array
-import logging
-import json
-
-from dotenv import load_dotenv
-import yaml
-
-from array import array
-from pathlib import Path
-import argparse
-import os
-import math
-import logging
 from collections import defaultdict
-import json
-import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+import json
+import logging
+import math
+import os
+import time
 
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine
-import numpy as np
-import faiss
 from dotenv import load_dotenv
 from openai import OpenAI
-
-from .models import Entity
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from tqdm import tqdm
+import faiss
+import numpy as np
+import tiktoken
+import yaml
 
+from .models import CombinedEntity
 
 load_dotenv()
 CLIENT = OpenAI(timeout=600.0)
@@ -105,22 +95,15 @@ def parse_crawler_config(yaml_config_path):
     }
 
 
+MAX_EMBED_TOKENS = 8000
+
+
 def embed_text(text, client, max_retries):
-    """Generate and serialize an embedding for the given text.
+    enc = tiktoken.encoding_for_model(EMBEDDING_MODEL)
+    tokens = enc.encode(text)
+    if len(tokens) > MAX_EMBED_TOKENS:
+        text = enc.decode(tokens[:MAX_EMBED_TOKENS])
 
-    Uses the given OpenAI embedding model to create a vector
-    representation of the input text and returns it as a binary
-    blob suitable for storage in the database. The request is
-    retried with exponential backoff if the OpenAI API call fails.
-
-    Args:
-        text: The input text to embed.
-        max_retries: Maximum number of retry attempts for the API call.
-
-    Returns:
-        bytes: The embedding encoded as a float32 array in little-endian
-        binary format.
-    """
     delay = 1.0
     for attempt in range(max_retries):
         try:
@@ -149,8 +132,8 @@ def load_embedding_index(db_url):
     session = Session()
     logging.info("loading entities from the db")
     rows = (
-        session.query(Entity.id, Entity.embedding)
-        .filter(Entity.embedding.isnot(None))
+        session.query(CombinedEntity.id, CombinedEntity.embedding)
+        .filter(CombinedEntity.embedding.isnot(None))
         .all()
     )
     session.close()
@@ -243,9 +226,7 @@ User query: {user_query}
     query_embedding = array("f")
     query_embedding.frombytes(query_embedding_bytes)
 
-    results = search_index(
-        embedding_index, entity_ids, query_embedding, top_k=50
-    )
+    results = search_index(embedding_index, entity_ids, query_embedding, top_k=50)
 
     engine = create_engine(db_url)
     Session = sessionmaker(bind=engine)
@@ -253,7 +234,11 @@ User query: {user_query}
     result_by_name = defaultdict(str)
     try:
         for score, entity_id in results:
-            entity = session.query(Entity).filter(Entity.id == entity_id).one()
+            entity = (
+                session.query(CombinedEntity)
+                .filter(CombinedEntity.id == entity_id)
+                .one()
+            )
             result_by_name[(entity.name, entity.type)] += entity.text
         return result_by_name
     finally:

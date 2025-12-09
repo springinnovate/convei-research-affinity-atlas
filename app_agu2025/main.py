@@ -47,9 +47,7 @@ executor = ThreadPoolExecutor(max_workers=4)
 JOBS: Dict[str, Dict[str, Any]] = {}
 
 app = FastAPI()
-app.mount(
-    "/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static"
-)
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.auto_reload = True
 
@@ -92,9 +90,7 @@ async def startup_event():
     config_path = os.environ.get("CONFIG_PATH")
     db_path = os.environ.get("DB_PATH")
     if not config_path or not db_path:
-        raise RuntimeError(
-            "CONFIG_PATH and DB_PATH environment variables must be set"
-        )
+        raise RuntimeError("CONFIG_PATH and DB_PATH environment variables must be set")
 
     CONFIG = parse_crawler_config(Path(config_path))
 
@@ -108,8 +104,7 @@ async def startup_event():
     ENTITY_IDS, embedding_vectors = load_embedding_index(DB_URL)
 
     if not INDEX_PATH.exists():
-        EMBEDDING_INDEX = build_index(embedding_vectors)
-        faiss.write_index(EMBEDDING_INDEX, str(INDEX_PATH))
+        raise RuntimeError(f"{INDEX_PATH} seems to not exist, build it first.")
     else:
         EMBEDDING_INDEX = faiss.read_index(str(INDEX_PATH))
 
@@ -226,9 +221,7 @@ async def search(req: SearchRequest, db: Session = Depends(get_db)):
 
             job["status"] = "analyzing"
             job["message"] = "Analyzing entities with LLM"
-            logging.info(
-                "Job %s: analyzing entities with model %s", job_id, MODEL_NAME
-            )
+            logging.info("Job %s: analyzing entities with model %s", job_id, MODEL_NAME)
             analyses = analyze_results_by_name(
                 result_by_name,
                 user_query,
