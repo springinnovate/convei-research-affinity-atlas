@@ -8,24 +8,28 @@ entity types using a ThreadPoolExecutor, with basic retry logic and
 exception guarding for robustness in worker threads.
 """
 
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 import argparse
 import functools
 import json
 import logging
 import os
+import re
 import time
+import sys
 
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from openai import OpenAI
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from tqdm.auto import tqdm
+import tiktoken
 
-from models import Page, Entity, EntityBio
-from utils import parse_crawler_config
+from .models import Page, Entity, EntityBio
+from .utils import parse_crawler_config
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,26 +71,6 @@ def guard_exceptions(fn):
 
 @guard_exceptions
 def extract_entities_for_page_and_type(task):
-    """Run entity extraction for a single (page, entity_type) task.
-
-    This function is designed to be used with executors like
-    concurrent.futures.ThreadPoolExecutor, which expect a single
-    argument per mapped call. To keep the executor mapping simple,
-    all parameters are bundled into a single tuple rather than
-    passing multiple positional arguments.
-
-    Args:
-        task: A tuple of
-            (db_url, page_id, entity_type, entity_desc, model), where:
-                db_url (str): SQLAlchemy database URL for the SQLite DB.
-                page_id (int): Primary key of the Page to process.
-                entity_type (str): Logical entity type name (e.g. "Person").
-                entity_desc (str): Natural language description of the
-                    entity type used to guide extraction.
-                model (str): OpenAI model name to use for extraction.
-                max_fetch_retries (int): number of times to retry a failed
-                    OpenAI fetch.
-    """
     db_url, page_id, entity_type, entity_desc, model, max_fetch_retries = task
     engine = create_engine(db_url)
     Session = sessionmaker(bind=engine)
@@ -95,7 +79,22 @@ def extract_entities_for_page_and_type(task):
     if entity_type in page.entities_analyzed:
         session.close()
         return
-    prompt = f"""
+    soup = BeautifulSoup(page.html, "html.parser")
+    cleaned_text = soup.get_text(separator="\n", strip=True)
+    cleaned_text = cleaned_text.strip()
+    cleaned_text = re.sub(r"[ \t]+", " ", cleaned_text)
+    cleaned_text = re.sub(r"\n\s*\n\s*\n+", "\n\n", cleaned_text)
+
+    logging.debug(f"cleaning text")
+    try:
+        encoding = tiktoken.encoding_for_model(model)
+    except Exception:
+        encoding = tiktoken.get_encoding("cl100k_base")
+
+    token_threshold = 80000
+
+    def build_prompt(html):
+        return f"""
 You are an information extraction system.
 
 You must extract entities of type "{entity_type}" from the HTML content below.
@@ -127,53 +126,77 @@ Requirements:
 }}
 
 HTML:
-{page.html}
+{html}
 """.strip()
-    logging.debug(prompt)
-    delay = 1.0
-    completion = None
-    for attempt in range(max_fetch_retries):
-        try:
-            completion = CLIENT.chat.completions.create(
-                model=model,
-                response_format={"type": "json_object"},
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an information extraction system that always returns strict JSON.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
+
+    logging.debug(f"building prompt for {len(cleaned_text)} characters")
+    full_prompt = build_prompt(cleaned_text)
+    full_tokens = len(encoding.encode(full_prompt))
+    logging.debug(f"{len(cleaned_text)} characters as {full_tokens} tokens")
+
+    if full_tokens <= token_threshold:
+        chunks = [cleaned_text]
+    else:
+        html_tokens = encoding.encode(cleaned_text)
+        chunk_size = token_threshold // 2
+        chunks = []
+        for i in range(0, len(html_tokens), chunk_size):
+            logging.debug(f"chunking {1+i} chunk")
+            chunk_tokens = html_tokens[i : i + chunk_size]
+            chunks.append(encoding.decode(chunk_tokens))
+        logging.debug(f"broke into {len(chunks)} chunks")
+
+    for chunk in chunks:
+        prompt = build_prompt(chunk)
+        delay = 1.0
+        completion = None
+        for attempt in range(max_fetch_retries):
+            try:
+                completion = CLIENT.chat.completions.create(
+                    model=model,
+                    response_format={"type": "json_object"},
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are an information extraction system that always returns strict JSON.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                )
+                break
+            except Exception as exc:
+                logging.error(
+                    "OpenAI call failed for page %s, entity_type %s, attempt %s/%s: %s",
+                    page.id,
+                    entity_type,
+                    attempt + 1,
+                    max_fetch_retries,
+                    exc,
+                )
+                session.rollback()
+                if attempt == max_fetch_retries - 1:
+                    session.close()
+                    with open("error", "w") as errorfile:
+                        errorfile.write(prompt)
+                    sys.exit()
+                    return
+                time.sleep(delay)
+                delay *= 2
+        data = json.loads(completion.choices[0].message.content)
+        for item in data.get("entities", []):
+            entity = Entity(
+                type=entity_type,
+                name=item["name"],
+                text=item.get("text"),
+                attributes=item.get("attributes"),
+                page_id=page.id,
             )
-            break
-        except Exception as exc:
-            logging.error(
-                "OpenAI call failed for page %s, entity_type %s, attempt %s/%s: %s",
-                page.id,
-                entity_type,
-                attempt + 1,
-                max_fetch_retries,
-                exc,
-            )
-            session.rollback()
-            if attempt == max_fetch_retries - 1:
-                session.close()
-                return
-            time.sleep(delay)
-            delay *= 2
-    data = json.loads(completion.choices[0].message.content)
-    for item in data.get("entities", []):
-        entity = Entity(
-            type=entity_type,
-            name=item["name"],
-            text=item.get("text"),
-            attributes=item.get("attributes"),
-            page_id=page.id,
-        )
-        session.add(entity)
+            session.add(entity)
+    logging.debug("done with processing, committing session")
     page.entities_analyzed.append(entity_type)
     session.commit()
     session.close()
+    logging.debug("done with session, quitting")
 
 
 def extract_entities(db_path: Path, config_path: Path, model: str):
@@ -203,6 +226,7 @@ def extract_entities(db_path: Path, config_path: Path, model: str):
     session = Session()
     pages = session.query(Page).all()
     tasks = []
+    logging.info(f"loading pages")
     for page in pages:
         for entity_config in entity_configs:
             entity_type = entity_config["type"]
@@ -219,14 +243,14 @@ def extract_entities(db_path: Path, config_path: Path, model: str):
                     config["max_fetch_retries"],
                 )
             )
+    logging.info(f"done loading pages, starting workers")
     session.close()
     with ThreadPoolExecutor(max_workers=config["num_workers"]) as executor:
-        list(
-            tqdm(
-                executor.map(extract_entities_for_page_and_type, tasks),
-                total=len(tasks),
-            )
-        )
+        futures = [
+            executor.submit(extract_entities_for_page_and_type, task) for task in tasks
+        ]
+        for _ in tqdm(as_completed(futures), total=len(futures)):
+            pass
 
 
 def build_entity_bio(db_path: Path, config_path: Path, model: str):
@@ -373,9 +397,7 @@ Return only the bio text, with no extra explanations or formatting.
     texts_by_name_type = {}
     config = parse_crawler_config(config_path)
     entity_desc = {}
-    for entity_config in tqdm(
-        config["entities"], desc="building entity descriptions"
-    ):
+    for entity_config in tqdm(config["entities"], desc="building entity descriptions"):
         entity_desc[entity_config["type"]] = entity_config["description"]
     max_fetch_retries = config["max_fetch_retries"]
     num_workers = config["num_workers"]
@@ -397,7 +419,13 @@ Return only the bio text, with no extra explanations or formatting.
         texts_by_name_type[(entity_name, entity_type)].append(text)
 
     for key, texts in texts_by_name_type.items():
-        texts_by_name_type[key] = "\n".join(texts)
+        raw_text = "\n".join(texts)
+        soup = BeautifulSoup(raw_text, "html.parser")
+        cleaned_text = soup.get_text(separator="\n", strip=True)
+        cleaned_text = cleaned_text.strip()
+        cleaned_text = re.sub(r"[ \t]+", " ", cleaned_text)
+        cleaned_text = re.sub(r"\n\s*\n\s*\n+", "\n\n", cleaned_text)
+        texts_by_name_type[key] = cleaned_text
 
     session.close()
     logging.info(
@@ -431,18 +459,21 @@ def main():
     parser = argparse.ArgumentParser(
         description="Extract entities from pages using OpenAI and store them in the database.",
     )
-    parser.add_argument(
-        "db_path", type=Path, help="Path to the SQLite database file"
-    )
+    parser.add_argument("db_path", type=Path, help="Path to the SQLite database file")
     parser.add_argument(
         "config_path",
         type=Path,
         help='Path to YAML config with an "entities" list',
     )
+    parser.add_argument("--model", default="gpt-4o-mini", help="OpenAI model name")
     parser.add_argument(
-        "--model", default="gpt-4o-mini", help="OpenAI model name"
+        "--log-level",
+        default="INFO",
+        choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
+        help="Logging level",
     )
     args = parser.parse_args()
+    logging.getLogger().setLevel(getattr(logging, args.log_level))
     extract_entities(args.db_path, args.config_path, model=args.model)
     build_entity_bio(args.db_path, args.config_path, args.model)
 

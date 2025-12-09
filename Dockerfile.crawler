@@ -16,7 +16,8 @@ RUN pip install --no-cache-dir \
     tqdm \
     && python -m playwright install --with-deps chromium
 
-
 RUN pip install faiss-cpu
+
+RUN pip install tiktoken
 
 CMD ["bash"]

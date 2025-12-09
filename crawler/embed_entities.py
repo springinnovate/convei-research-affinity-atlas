@@ -18,8 +18,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from tqdm import tqdm
 
-from models import Entity
-from utils import parse_crawler_config, embed_text
+from .models import Entity
+from .utils import parse_crawler_config, embed_text
 
 logging.basicConfig(
     level=logging.INFO,
@@ -77,9 +77,7 @@ def embed_entities(db_path, config_path):
                 .yield_per(100)
             )
             for entity_id, name, text in entities:
-                entity_to_process_queue.put(
-                    (entity_id, f"** {name} **\n\n{text}")
-                )
+                entity_to_process_queue.put((entity_id, f"** {name} **\n\n{text}"))
             for _ in range(num_workers):
                 entity_to_process_queue.put(None)
         except Exception:
@@ -120,6 +118,8 @@ def embed_entities(db_path, config_path):
 
     reader_thread = Thread(target=database_reader)
     reader_thread.start()
+    logging.info("waiting for reader thread to terminate")
+    reader_thread.join()
 
     with tqdm(total=total) as pbar:
 
@@ -195,14 +195,10 @@ def main():
             embedding settings and worker configuration.
     """
     parser = argparse.ArgumentParser(
-        description=(
-            "Backfill OpenAI embeddings for entities stored in the database."
-        ),
+        description=("Backfill OpenAI embeddings for entities stored in the database."),
     )
 
-    parser.add_argument(
-        "db_path", type=Path, help="Path to the SQLite database file"
-    )
+    parser.add_argument("db_path", type=Path, help="Path to the SQLite database file")
     parser.add_argument(
         "config_path",
         type=Path,
