@@ -21,6 +21,7 @@ from crawler.utils import (
     parse_crawler_config,
     load_embedding_index,
     build_index,
+    load_entity_ids,
     build_entity_context_for_query,
     analyze_results_by_name,
 )
@@ -41,7 +42,7 @@ CONFIG: Dict[str, Any] = {}
 EMBEDDING_INDEX = None
 ENTITY_IDS: List[int] = []
 
-INDEX_PATH = BASE_DIR / "entity_index.faiss"
+INDEX_PATH = BASE_DIR / "data" / "entity_index.faiss"
 
 executor = ThreadPoolExecutor(max_workers=4)
 JOBS: Dict[str, Dict[str, Any]] = {}
@@ -101,7 +102,7 @@ async def startup_event():
     )
     SessionLocal = sessionmaker(bind=ENGINE, autoflush=False, autocommit=False)
 
-    ENTITY_IDS, embedding_vectors = load_embedding_index(DB_URL)
+    ENTITY_IDS = load_entity_ids(DB_URL)
 
     if not INDEX_PATH.exists():
         raise RuntimeError(f"{INDEX_PATH} seems to not exist, build it first.")

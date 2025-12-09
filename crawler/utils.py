@@ -134,6 +134,7 @@ def load_embedding_index(db_url):
     rows = (
         session.query(CombinedEntity.id, CombinedEntity.embedding)
         .filter(CombinedEntity.embedding.isnot(None))
+        .order_by(CombinedEntity.id)
         .all()
     )
     session.close()
@@ -149,6 +150,23 @@ def load_embedding_index(db_url):
         ids.append(entity_id)
         vectors.append(v)
     return ids, vectors
+
+
+def load_entity_ids(db_url):
+    engine = create_engine(db_url)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    logging.info("loading entities from the db")
+    rows = (
+        session.query(CombinedEntity.id)
+        .filter(CombinedEntity.embedding.isnot(None))
+        .order_by(CombinedEntity.id)
+        .all()
+    )
+    session.close()
+
+    ids = [row[0] for row in rows]
+    return ids
 
 
 def find_nearest(ids, vectors, query_vec, top_k=10):

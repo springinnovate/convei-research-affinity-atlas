@@ -22,13 +22,22 @@ def main():
         print(f"{index_path} exists, so skipping")
         return
 
+    print(f"Loading embeddings from {db_url}...")
     entity_ids, embedding_vectors = load_embedding_index(db_url)
+    print(f"Loaded {len(entity_ids)} embeddings")
 
+    print("Converting embeddings to float32 array...")
     x = np.asarray(embedding_vectors, dtype="float32")
+    print(f"Embedding matrix shape: {x.shape}")
+
+    print("Building FAISS index...")
     index = faiss.IndexFlatIP(x.shape[1])
     index.add(x)
+    print("FAISS index built")
 
+    print(f"Writing index to {index_path}...")
     faiss.write_index(index, str(index_path))
+    print("Done")
 
 
 if __name__ == "__main__":
