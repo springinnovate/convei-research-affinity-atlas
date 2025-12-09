@@ -57,27 +57,13 @@ class Page(Base):
     ERROR = "ERROR"
 
 
-class Entity(Base):
-    """LLM-extracted entity tied to a single source page.
-
-    An Entity represents one extracted entity mention, including:
-    - type: logical category such as 'Person', 'Session', etc.
-    - name: human-readable label for the entity.
-    - text: free-form description or summary used as LLM context.
-    - embedding: binary-encoded vector of the text for similarity search.
-    - attributes: JSON payload for structured fields specific to the type.
-
-    The page relation links the entity back to the Page whose content was used
-    to derive this description and attributes.
-    """
-
-    __tablename__ = "entities"
+class RawEntity(Base):
+    __tablename__ = "raw_entities"
 
     id = Column(Integer, primary_key=True)
     type = Column(String, index=True, nullable=False)
     name = Column(String, index=True, nullable=False)
     text = Column(Text)
-    embedding = Column(LargeBinary, nullable=True)
     attributes = Column(JSON)
 
     page_id = Column(Integer, ForeignKey("pages.id"), nullable=False)
