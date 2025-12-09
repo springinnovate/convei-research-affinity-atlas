@@ -51,7 +51,14 @@ class Page(Base):
         nullable=False,
         default=list,
     )
-    entities = relationship("Entity", back_populates="page")
+
+    raw_entities = relationship("RawEntity", back_populates="page")
+    combined_entities = relationship(
+        "CombinedEntity",
+        secondary="raw_entities",
+        viewonly=True,
+        back_populates="pages",
+    )
     IN_PROGRESS = "IN_PROGRESS"
     SUCCESS = "SUCCESS"
     ERROR = "ERROR"
@@ -67,7 +74,30 @@ class RawEntity(Base):
     attributes = Column(JSON)
 
     page_id = Column(Integer, ForeignKey("pages.id"), nullable=False)
-    page = relationship("Page", back_populates="entities")
+    page = relationship("Page", back_populates="raw_entities")
+
+    combined_entity_id = Column(
+        Integer, ForeignKey("combined_entities.id"), nullable=True
+    )
+    combined_entity = relationship("CombinedEntity", back_populates="raw_entities")
+
+
+class CombinedEntity(Base):
+    __tablename__ = "combined_entities"
+
+    id = Column(Integer, primary_key=True)
+    type = Column(String, index=True, nullable=False)
+    name = Column(String, index=True, nullable=False)
+    text = Column(Text)
+    embedding = Column(LargeBinary, nullable=True)
+
+    raw_entities = relationship("RawEntity", back_populates="combined_entity")
+    pages = relationship(
+        "Page",
+        secondary="raw_entities",
+        viewonly=True,
+        back_populates="combined_entities",
+    )
 
 
 class EntityBio(Base):
