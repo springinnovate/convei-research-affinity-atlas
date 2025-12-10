@@ -79,7 +79,9 @@ class RawEntity(Base):
     combined_entity_id = Column(
         Integer, ForeignKey("combined_entities.id"), nullable=True
     )
-    combined_entity = relationship("CombinedEntity", back_populates="raw_entities")
+    combined_entity = relationship(
+        "CombinedEntity", back_populates="raw_entities"
+    )
 
 
 class CombinedEntity(Base):
@@ -88,6 +90,7 @@ class CombinedEntity(Base):
     id = Column(Integer, primary_key=True)
     type = Column(String, index=True, nullable=False)
     name = Column(String, index=True, nullable=False)
+    last_name_norm = Column(String, Index=True, nullable=True)
     text = Column(Text)
     embedding = Column(LargeBinary, nullable=True)
 
