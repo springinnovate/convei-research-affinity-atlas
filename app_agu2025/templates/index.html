@@ -46,7 +46,7 @@
             <textarea id="UserInterestText"
                       class="form-control mb-2"
                       rows="3"
-                      placeholder="Tell us your topics, keywords, frameworks, areas of interest, and/or anything else, and we’ll use AGU 2025's participant bios, abstracts, and session information to help you discover people whose work aligns with those ideas."></textarea>
+                      placeholder="Tell us your topics, keywords, frameworks, areas of interest, and/or anything else, and we'll use AGU 2025's participant bios, abstracts, and session information to help you discover people whose work aligns with those ideas."></textarea>
 
             <button id="MatchPeopleBtn" class="btn btn-primary">
               <span id="MatchPeopleBtnText">Find Matches</span>
@@ -94,52 +94,6 @@ Katherine Johnson"></textarea>
       const updateRow = (row,msg,done=false)=>
         (row.textContent = msg,
          row.className = `alert ${done?'alert-success':'alert-info'} py-1 mb-2`);
-
-      async function fetchBio(name) {
-        try {
-          const res = await fetchJSON('/entity_bio', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ name: name })
-          });
-          return res.bio;
-        } catch (e) {
-          console.error(`Error fetching bio for ${name}:`, e);
-          return 'Bio not available.';
-        }
-      }
-
-      async function showMatches(matches) {
-        const out = getEl('MatchResults');
-
-        if (!matches.length) {
-          out.textContent = 'No relevant people found.';
-          return;
-        }
-
-        out.innerHTML = '';
-
-        for (const m of matches) {
-          const bio = await fetchBio(m.name);
-
-          const urlList = m.urls ? `
-            <ul>${m.urls.map(url => `<li><a href="${url}" target="_blank">${url}</a></li>`).join('')}</ul>
-          ` : '';
-
-          const matchEl = document.createElement('div');
-          matchEl.className = 'alert alert-info py-1 mb-2';
-
-          matchEl.innerHTML = `
-            <strong>${m.name}</strong> — score ${m.relevance_score}<br>
-            <em>${m.rationale}</em><br>
-            <small>${m.bio_quote}</small>
-            <div class="mt-2"><strong>Bio:</strong> ${bio}</div>
-            ${urlList}
-          `;
-
-          out.appendChild(matchEl);
-        }
-      }
 
       let matchProgressTimer = null;
 
@@ -205,131 +159,6 @@ Katherine Johnson"></textarea>
         }
       });
 
-      const bioCache = new Map();
-
-      function attachBioHover(nameEl, entityName) {
-        if (!entityName || entityName === 'Unknown') return;
-
-        let tooltip = null;
-        let hideTimer = null;
-
-        const showTooltip = async () => {
-          if (!tooltip) {
-            tooltip = document.createElement('div');
-            tooltip.className = 'custom-bio-tooltip alert alert-info shadow p-3';
-            tooltip.style.position = 'absolute';
-            tooltip.style.zIndex = 9999;
-            tooltip.style.width = '600px';
-            tooltip.style.maxWidth = '95vw';
-            tooltip.style.maxHeight = '60vh';
-            tooltip.style.overflow = 'auto';
-            tooltip.style.pointerEvents = 'auto';
-            tooltip.innerHTML = '<em>Loading bio...</em>';
-            document.body.appendChild(tooltip);
-
-            tooltip.addEventListener('mouseenter', () => {
-              if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
-            });
-            tooltip.addEventListener('mouseleave', () => {
-              scheduleHide();
-            });
-          }
-
-          const rect = nameEl.getBoundingClientRect();
-          tooltip.style.top = `${rect.bottom + window.scrollY + 6}px`;
-          tooltip.style.left = `${rect.left + window.scrollX}px`;
-
-          try {
-            let data = bioCache.get(entityName);
-            if (!data) {
-              data = await fetchJSON('/entity_bio', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: entityName })
-              });
-              bioCache.set(entityName, data);
-            }
-
-            const { name, bio, url_list } = data || {};
-            tooltip.innerHTML = '';
-
-            const title = document.createElement('h5');
-            title.className = 'fw-bold mb-2';
-            title.textContent = name || entityName;
-            tooltip.appendChild(title);
-
-            const bioEl = document.createElement('div');
-            bioEl.className = 'mb-0';
-
-            const parts = String(bio || '').split(/\n{2,}|\r?\n/).filter(Boolean);
-            if (parts.length === 0) {
-              const p = document.createElement('p');
-              p.className = 'mb-0';
-              p.textContent = 'Bio not available.';
-              bioEl.appendChild(p);
-            } else {
-              parts.forEach(txt => {
-                const p = document.createElement('p');
-                p.className = 'mb-2';
-                p.textContent = txt.trim();
-                bioEl.appendChild(p);
-              });
-            }
-
-            tooltip.appendChild(bioEl);
-
-            if (Array.isArray(url_list) && url_list.length) {
-              const urlsWrap = document.createElement('div');
-              urlsWrap.className = 'mt-2';
-
-              const ul = document.createElement('ul');
-              ul.className = 'mb-0 ps-3';
-
-              url_list.forEach(u => {
-                if (!u) return;
-                const li = document.createElement('li');
-                const a = document.createElement('a');
-                a.href = u;
-                a.textContent = u;
-                a.target = '_blank';
-                a.rel = 'noopener noreferrer';
-                li.appendChild(a);
-                ul.appendChild(li);
-              });
-
-              urlsWrap.appendChild(ul);
-              tooltip.appendChild(urlsWrap);
-            }
-          } catch (err) {
-            console.error('Tooltip bio fetch error:', err);
-            tooltip.innerHTML = '<span class="text-danger">Error loading bio.</span>';
-          }
-        };
-
-        const scheduleHide = () => {
-          if (hideTimer) clearTimeout(hideTimer);
-          hideTimer = setTimeout(() => {
-            if (tooltip) {
-              tooltip.remove();
-              tooltip = null;
-            }
-          }, 200);
-        };
-
-        nameEl.addEventListener('mouseenter', async () => {
-          nameEl.style.textDecoration = 'underline';
-          nameEl.style.color = '#0d6efd';
-          if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
-          await showTooltip();
-        });
-
-        nameEl.addEventListener('mouseleave', () => {
-          nameEl.style.textDecoration = '';
-          nameEl.style.color = '';
-          scheduleHide();
-        });
-      }
-
       function renderMatches(payload) {
         const target = getEl('MatchResults');
         target.innerHTML = '';
@@ -389,8 +218,6 @@ Katherine Johnson"></textarea>
           nameEl.appendChild(textSpan);
 
           title.appendChild(nameEl);
-
-          attachBioHover(textSpan, m.name || 'Unknown');
 
           body.appendChild(title);
 
