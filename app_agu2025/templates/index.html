@@ -97,68 +97,199 @@ gillian galford
          row.className = `alert ${done?'alert-success':'alert-info'} py-1 mb-2`);
 
       let matchProgressTimer = null;
+      let peopleFindProgressTimer = null;
 
-      getEl('MatchPeopleBtn').addEventListener('click', async () => {
-        const btn  = getEl('MatchPeopleBtn'),
-              txt  = getEl('MatchPeopleBtnText'),
-              spin = getEl('MatchPeopleBtnSpinner'),
-              box  = getEl('UserInterestText'),
-              input = (box.value || '').trim();
 
-        if (!input) return;
+      peopleFinderBtn.addEventListener('click', async () => {
+  const names = peopleBox.value
+    .split('\n')
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
 
-        btn.disabled = true;
-        box.disabled = true;
-        txt.textContent = 'Starting...';
-        spin.classList.remove('d-none');
+  peopleFinderBtn.disabled = true;
+  peopleBtnText.textContent = 'Starting...';
+  peopleSpinner.classList.remove('d-none');
+  peopleOut.innerHTML = '';
 
+  if (names.length === 0) {
+    peopleOut.innerHTML = `
+      <div class="alert alert-warning" role="alert">
+        Please enter at least one name.
+      </div>
+    `;
+    peopleSpinner.classList.add('d-none');
+    peopleBtnText.textContent = '(Try to) find people';
+    updatePeopleBtnState();
+    return;
+  }
+
+  try {
+    const { job_id } = await fetchJSON('/find_people', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names })
+    });
+
+    await new Promise((resolve, reject) => {
+      peopleFindProgressTimer = setInterval(async () => {
         try {
-          const { job_id } = await fetchJSON('/search', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: input })
-          });
+          const { done, total, status, message } = await fetchJSON(
+            `/find_people_status?job_id=${encodeURIComponent(job_id)}`
+          );
 
-          await new Promise((resolve, reject) => {
-            matchProgressTimer = setInterval(async () => {
-              try {
-                const { done, total, status, message } = await fetchJSON(`/search_progress?job_id=${encodeURIComponent(job_id)}`);
-                if (total > 0) {
-                  txt.textContent = `Matching... (${done} of ${total} chunks done) -- Do not navigate away from the page`;
-                } else {
-                  txt.textContent = 'Matching...';
-                }
-                if (status === 'error') {
-                  clearInterval(matchProgressTimer);
-                  matchProgressTimer = null;
-                  reject(new Error(message || 'Search failed'));
-                }
-                if (status === 'done') {
-                  clearInterval(matchProgressTimer);
-                  matchProgressTimer = null;
-                  resolve();
-                }
-              } catch (e) {
-                clearInterval(matchProgressTimer);
-                matchProgressTimer = null;
-                reject(e);
-              }
-            }, 1000);
-          });
+          if (total > 0) {
+            peopleBtnText.textContent =
+              `Finding people... (${done} of ${total} processed)`;
+          } else {
+            peopleBtnText.textContent = 'Finding people...';
+          }
 
-          const result = await fetchJSON(`/search_result?job_id=${encodeURIComponent(job_id)}`);
-          renderMatches(result);
-
+          if (status === 'error') {
+            clearInterval(peopleFindProgressTimer);
+            peopleFindProgressTimer = null;
+            reject(new Error(message || 'Find people failed'));
+          }
+          if (status === 'done') {
+            clearInterval(peopleFindProgressTimer);
+            peopleFindProgressTimer = null;
+            resolve();
+          }
         } catch (e) {
-          console.error('Matching error:', e);
-          renderMatches({ query: input, matches: [], notes: 'Error fetching matches.' });
-        } finally {
-          btn.disabled = false;
-          box.disabled = false;
-          txt.textContent = 'Find Matches';
-          spin.classList.add('d-none');
+          clearInterval(peopleFindProgressTimer);
+          peopleFindProgressTimer = null;
+          reject(e);
         }
+      }, 1000);
+    });
+
+    const matches = await fetchJSON(
+      `/find_people_result?job_id=${encodeURIComponent(job_id)}`
+    );
+
+    if (!Array.isArray(matches) || matches.length === 0) {
+      peopleOut.innerHTML = `
+        <div class="alert alert-warning" role="alert">
+          No matches returned.
+        </div>
+      `;
+    } else {
+      const accordion = document.createElement('div');
+      accordion.className = 'accordion';
+      accordion.id = 'PeopleFinderAccordion';
+
+      matches.forEach((m, idx) => {
+        const item = document.createElement('div');
+        item.className = 'accordion-item';
+
+        const headingId = `pf-heading-${idx}`;
+        const collapseId = `pf-collapse-${idx}`;
+
+        const header = document.createElement('h2');
+        header.className = 'accordion-header';
+        header.id = headingId;
+
+        const btn = document.createElement('button');
+        btn.className = 'accordion-button collapsed d-flex justify-content-between align-items-center';
+        btn.type = 'button';
+        btn.setAttribute('data-bs-toggle', 'collapse');
+        btn.setAttribute('data-bs-target', `#${collapseId}`);
+        btn.setAttribute('aria-expanded', 'false');
+        btn.setAttribute('aria-controls', collapseId);
+
+        const labelWrap = document.createElement('div');
+        labelWrap.className = 'me-2';
+
+        const baseDiv = document.createElement('div');
+        baseDiv.innerHTML = `<strong>${escapeHtml(m.base_name || '')}</strong>`;
+
+        const matchDiv = document.createElement('div');
+        matchDiv.className = 'small text-muted';
+        matchDiv.textContent = m.matched_name || 'No matched name';
+
+        labelWrap.appendChild(baseDiv);
+        labelWrap.appendChild(matchDiv);
+
+        const badge = document.createElement('span');
+        let badgeClass = '';
+        let badgeText = '';
+
+        if (m.match_type === 'exact') {
+          badgeClass = 'bg-success';
+          badgeText = 'Exact match';
+        } else if (m.match_type === 'partial') {
+          badgeClass = 'bg-warning text-dark';
+          badgeText = 'Partial match';
+        } else {
+          badgeClass = 'bg-secondary';
+          badgeText = 'Not matched';
+        }
+
+        badge.className = 'badge rounded-pill ' + badgeClass;
+        badge.textContent = badgeText;
+
+        btn.appendChild(labelWrap);
+        btn.appendChild(badge);
+
+        header.appendChild(btn);
+
+        const collapse = document.createElement('div');
+        collapse.id = collapseId;
+        collapse.className = 'accordion-collapse collapse';
+        collapse.setAttribute('aria-labelledby', headingId);
+        collapse.setAttribute('data-bs-parent', '#PeopleFinderAccordion');
+
+        const body = document.createElement('div');
+        body.className = 'accordion-body';
+
+        if (Array.isArray(m.url_list) && m.url_list.length) {
+          const title = document.createElement('div');
+          title.className = 'fw-semibold mb-2';
+          title.textContent = 'Found in these pages:';
+          body.appendChild(title);
+
+          const ul = document.createElement('ul');
+          ul.className = 'mb-0';
+          m.url_list.forEach(u => {
+            if (!u) return;
+            const li = document.createElement('li');
+            const a = document.createElement('a');
+            a.href = u;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.textContent = u;
+            li.appendChild(a);
+            ul.appendChild(li);
+          });
+          body.appendChild(ul);
+        } else {
+          const none = document.createElement('div');
+          none.className = 'text-muted';
+          none.textContent = 'No pages found for this person.';
+          body.appendChild(none);
+        }
+
+        collapse.appendChild(body);
+        item.appendChild(header);
+        item.appendChild(collapse);
+        accordion.appendChild(item);
       });
+
+      peopleOut.appendChild(accordion);
+    }
+  } catch (e) {
+    console.error('People finder error:', e);
+    peopleOut.innerHTML = `
+      <div class="alert alert-danger" role="alert">
+        Error while trying to find people.
+      </div>
+    `;
+  } finally {
+    peopleSpinner.classList.add('d-none');
+    peopleBtnText.textContent = '(Try to) find people';
+    updatePeopleBtnState();
+  }
+});
+
 
       function renderMatches(payload) {
         const target = getEl('MatchResults');

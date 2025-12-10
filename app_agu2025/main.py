@@ -164,6 +164,7 @@ async def search(req: SearchRequest, db: Session = Depends(get_db)):
         "message": "Job queued",
         "result": None,
         "query": user_query,
+        "job_type": "search",
     }
 
     def run_job(job_id: str):
@@ -234,7 +235,7 @@ async def search(req: SearchRequest, db: Session = Depends(get_db)):
             logging.exception("Job %s: failed with exception", job_id)
 
     executor.submit(run_job, job_id)
-    logging.info("Submitted job %s to executor", job_id)
+    logging.info("Submitted search job %s to executor", job_id)
     return SearchJobResponse(job_id=job_id)
 
 
@@ -277,149 +278,222 @@ async def search_result(job_id: str):
     return SearchResponse(**job["result"])
 
 
-class FindPeopleMatch(BaseModel):
-    base_name: str
-    matched_name: Optional[str]
-    match_type: str
-    url_list: List[str]
+def _norm_name(s: str) -> str:
+    return " ".join(
+        "".join(
+            ch.lower() if ch.isalnum() or ch in "- " else " " for ch in s
+        ).split()
+    )
 
 
-@app.post("/find_people", response_model=List[FindPeopleMatch])
-async def find_people(req: FindPeopleRequest):
-    def norm_name(s: str) -> str:
-        return " ".join(
-            "".join(
-                ch.lower() if ch.isalnum() or ch in "- " else " " for ch in s
-            ).split()
+def _process_one_person(base: str, db: Session) -> Optional[FindPeopleMatch]:
+    base_norm = _norm_name(base)
+    base_parts = base_norm.split()
+    if not base_parts:
+        return None
+
+    base_first = base_parts[0]
+    base_last = base_parts[-1]
+
+    exact = (
+        db.query(CombinedEntity)
+        .filter(
+            CombinedEntity.type == "Person",
+            CombinedEntity.name.ilike(base),
+        )
+        .first()
+    )
+    if exact:
+        urls_q = (
+            db.query(Page.url)
+            .join(RawEntity, RawEntity.page_id == Page.id)
+            .filter(RawEntity.combined_entity_id == exact.id)
+            .distinct()
+            .all()
+        )
+        url_list = [u[0] for u in urls_q]
+
+        return FindPeopleMatch(
+            base_name=base,
+            matched_name=exact.name,
+            match_type="exact",
+            url_list=url_list,
         )
 
-    def process_one(base: str) -> Optional[FindPeopleMatch]:
-        db = SessionLocal()
-        try:
-            base_norm = norm_name(base)
-            base_parts = base_norm.split()
-            if not base_parts:
-                return None
+    candidates = (
+        db.query(CombinedEntity)
+        .filter(
+            CombinedEntity.type == "Person",
+            CombinedEntity.name.ilike(f"%{base_last}%"),
+        )
+        .all()
+    )
 
-            base_first = base_parts[0]
-            base_last = base_parts[-1]
+    best = None
+    best_score = -1
 
-            exact = (
-                db.query(CombinedEntity)
-                .filter(
-                    CombinedEntity.type == "Person",
-                    CombinedEntity.name.ilike(base),
-                )
-                .first()
-            )
-            if exact:
-                urls_q = (
-                    db.query(Page.url)
-                    .join(RawEntity, RawEntity.page_id == Page.id)
-                    .filter(RawEntity.combined_entity_id == exact.id)
-                    .distinct()
-                    .all()
-                )
-                url_list = [u[0] for u in urls_q]
+    for c in candidates:
+        cand_norm = _norm_name(c.name)
+        cand_parts = cand_norm.split()
+        if not cand_parts:
+            continue
 
-                return FindPeopleMatch(
-                    base_name=base,
-                    matched_name=exact.name,
-                    match_type="exact",
-                    url_list=url_list,
-                )
+        cand_first = cand_parts[0]
+        cand_last = cand_parts[-1]
 
-            candidates = (
-                db.query(CombinedEntity)
-                .filter(
-                    CombinedEntity.type == "Person",
-                    CombinedEntity.name.ilike(f"%{base_last}%"),
-                )
-                .all()
-            )
+        bl = base_last.replace("-", "")
+        cl = cand_last.replace("-", "")
 
-            best = None
-            best_score = -1
+        if bl != cl and not (bl in cl or cl in bl):
+            continue
 
-            for c in candidates:
-                cand_norm = norm_name(c.name)
-                cand_parts = cand_norm.split()
-                if not cand_parts:
-                    continue
+        score = 0
+        if bl == cl:
+            score += 2
+        elif bl in cl or cl in bl:
+            score += 1
 
-                cand_first = cand_parts[0]
-                cand_last = cand_parts[-1]
+        if cand_first == base_first:
+            score += 2
+        elif cand_first and base_first and cand_first[0] == base_first[0]:
+            score += 1
 
-                bl = base_last.replace("-", "")
-                cl = cand_last.replace("-", "")
+        if score > best_score:
+            best_score = score
+            best = c
 
-                if bl != cl and not (bl in cl or cl in bl):
-                    continue
+    if best is not None and best_score > 0:
+        urls_q = (
+            db.query(Page.url)
+            .join(RawEntity, RawEntity.page_id == Page.id)
+            .filter(RawEntity.combined_entity_id == best.id)
+            .distinct()
+            .all()
+        )
+        url_list = [u[0] for u in urls_q]
 
-                score = 0
-                if bl == cl:
-                    score += 2
-                elif bl in cl or cl in bl:
-                    score += 1
+        return FindPeopleMatch(
+            base_name=base,
+            matched_name=best.name,
+            match_type="partial",
+            url_list=url_list,
+        )
 
-                if cand_first == base_first:
-                    score += 2
-                elif (
-                    cand_first and base_first and cand_first[0] == base_first[0]
-                ):
-                    score += 1
+    return FindPeopleMatch(
+        base_name=base,
+        matched_name=None,
+        match_type="not matched",
+        url_list=[],
+    )
 
-                if score > best_score:
-                    best_score = score
-                    best = c
 
-            if best is not None and best_score > 0:
-                urls_q = (
-                    db.query(Page.url)
-                    .join(RawEntity, RawEntity.page_id == Page.id)
-                    .filter(RawEntity.combined_entity_id == best.id)
-                    .distinct()
-                    .all()
-                )
-                url_list = [u[0] for u in urls_q]
+def run_find_people_job(job_id: str):
+    job = JOBS[job_id]
+    names: List[str] = job["names"]
+    logging.info("Starting find_people job %s for %d names", job_id, len(names))
+    db = SessionLocal()
+    try:
+        job["status"] = "running"
+        job["message"] = "Finding people"
+        job["done"] = 0
+        job["total"] = len(names)
 
-                return FindPeopleMatch(
-                    base_name=base,
-                    matched_name=best.name,
-                    match_type="partial",
-                    url_list=url_list,
-                )
+        results: List[FindPeopleMatch] = []
 
-            return FindPeopleMatch(
-                base_name=base,
-                matched_name=None,
-                match_type="not matched",
-                url_list=[],
-            )
-        finally:
-            db.close()
+        for base in tqdm(names, desc=f"find_people {job_id}"):
+            match = _process_one_person(base, db)
+            if match is not None:
+                results.append(match)
+            job["done"] += 1
 
-    names = []
+        job["result"] = [m.dict() for m in results]
+        job["status"] = "done"
+        job["message"] = "Job completed"
+        logging.info(
+            "find_people job %s completed (%d of %d names matched)",
+            job_id,
+            len(results),
+            len(names),
+        )
+    except Exception as exc:
+        job["status"] = "error"
+        job["message"] = f"Job failed: {exc}"
+        job["result"] = None
+        logging.exception("find_people job %s failed", job_id)
+    finally:
+        db.close()
+
+
+@app.post("/find_people", response_model=SearchJobResponse)
+async def find_people(req: FindPeopleRequest):
+    names: List[str] = []
     for raw_name in req.names:
         base = (raw_name or "").strip()
         if base:
             names.append(base)
 
     if not names:
-        return []
+        raise HTTPException(status_code=400, detail="No names provided")
 
-    loop = asyncio.get_running_loop()
-    tasks = [
-        loop.run_in_executor(executor, process_one, base) for base in names
-    ]
+    job_id = str(uuid4())
+    logging.info("Created find_people job %s for %d names", job_id, len(names))
 
-    matches: List[FindPeopleMatch] = []
-    for fut in tqdm(asyncio.as_completed(tasks), total=len(tasks)):
-        m = await fut
-        if m is not None:
-            matches.append(m)
+    JOBS[job_id] = {
+        "done": 0,
+        "total": len(names),
+        "status": "queued",
+        "message": "Job queued",
+        "result": None,
+        "names": names,
+        "job_type": "find_people",
+    }
 
-    return matches
+    executor.submit(run_find_people_job, job_id)
+    logging.info("Submitted find_people job %s to executor", job_id)
+    return SearchJobResponse(job_id=job_id)
+
+
+@app.get("/find_people_status", response_model=SearchProgressResponse)
+async def find_people_status(job_id: str):
+    job = JOBS.get(job_id)
+    if not job:
+        logging.info(
+            "find_people status requested for unknown job_id %s", job_id
+        )
+        raise HTTPException(status_code=404, detail="Job not found")
+    logging.debug(
+        "find_people status for job %s: done=%s total=%s status=%s",
+        job_id,
+        job.get("done", 0),
+        job.get("total", 0),
+        job.get("status", "unknown"),
+    )
+    return SearchProgressResponse(
+        job_id=job_id,
+        done=job.get("done", 0),
+        total=job.get("total", 0),
+        status=job.get("status", "unknown"),
+        message=job.get("message"),
+    )
+
+
+@app.get("/find_people_result", response_model=List[FindPeopleMatch])
+async def find_people_result(job_id: str):
+    job = JOBS.get(job_id)
+    if not job:
+        logging.info(
+            "find_people result requested for unknown job_id %s", job_id
+        )
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.get("status") != "done" or job.get("result") is None:
+        logging.info(
+            "find_people result requested for incomplete job %s (status=%s)",
+            job_id,
+            job.get("status"),
+        )
+        raise HTTPException(status_code=202, detail="Job not finished")
+    logging.info("Returning find_people result for job %s", job_id)
+    return [FindPeopleMatch(**m) for m in job["result"]]
 
 
 if __name__ == "__main__":
