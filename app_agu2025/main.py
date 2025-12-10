@@ -5,6 +5,7 @@ from uuid import uuid4
 import asyncio
 import logging
 import os
+import re
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException, Request
@@ -320,11 +321,25 @@ def _process_one_person(base: str, db: Session) -> Optional[FindPeopleMatch]:
             url_list=url_list,
         )
 
+    def norm_last(s: str) -> str:
+        s = (s or "").strip().lower()
+        s = re.sub(r"[^a-z\- ]+", " ", s)
+        parts = s.split()
+        if not parts:
+            return ""
+        last = parts[-1]
+        return last.replace("-", "")
+
+    base_norm = norm_name(base)
+    base_parts = base_norm.split()
+    base_last = base_parts[-1] if base_parts else ""
+    base_last_norm = norm_last(base)
+
     candidates = (
         db.query(CombinedEntity)
         .filter(
             CombinedEntity.type == "Person",
-            CombinedEntity.name.ilike(f"%{base_last}%"),
+            CombinedEntity.last_name_norm == base_last_norm,
         )
         .all()
     )
