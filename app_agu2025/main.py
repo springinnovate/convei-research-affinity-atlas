@@ -423,6 +423,7 @@ def _process_one_person(
             )
         )
 
+    if matches:
         return matches
 
     return [
