@@ -278,10 +278,25 @@ async def search_result(job_id: str):
 async def find_people(req: FindPeopleRequest, db: Session = Depends(get_db)):
     results: List[FindPeopleMatch] = []
 
+    def norm_name(s: str) -> str:
+        return " ".join(
+            "".join(
+                ch.lower() if ch.isalnum() or ch in "- " else " " for ch in s
+            ).split()
+        )
+
     for raw_name in req.names:
         base = (raw_name or "").strip()
         if not base:
             continue
+
+        base_norm = norm_name(base)
+        base_parts = base_norm.split()
+        if not base_parts:
+            continue
+
+        base_first = base_parts[0]
+        base_last = base_parts[-1]
 
         exact = (
             db.query(CombinedEntity)
@@ -291,7 +306,6 @@ async def find_people(req: FindPeopleRequest, db: Session = Depends(get_db)):
             )
             .first()
         )
-
         if exact:
             results.append(
                 FindPeopleMatch(
@@ -302,20 +316,53 @@ async def find_people(req: FindPeopleRequest, db: Session = Depends(get_db)):
             )
             continue
 
-        partial = (
+        candidates = (
             db.query(CombinedEntity)
             .filter(
                 CombinedEntity.type == "Person",
-                CombinedEntity.name.ilike(f"%{base}%"),
+                CombinedEntity.name.ilike(f"%{base_last}%"),
             )
-            .first()
+            .all()
         )
 
-        if partial:
+        best = None
+        best_score = -1
+
+        for c in candidates:
+            cand_norm = norm_name(c.name)
+            cand_parts = cand_norm.split()
+            if not cand_parts:
+                continue
+
+            cand_first = cand_parts[0]
+            cand_last = cand_parts[-1]
+
+            bl = base_last.replace("-", "")
+            cl = cand_last.replace("-", "")
+
+            if bl != cl and not (bl in cl or cl in bl):
+                continue
+
+            score = 0
+            if bl == cl:
+                score += 2
+            elif bl in cl or cl in bl:
+                score += 1
+
+            if cand_first == base_first:
+                score += 2
+            elif cand_first and base_first and cand_first[0] == base_first[0]:
+                score += 1
+
+            if score > best_score:
+                best_score = score
+                best = c
+
+        if best is not None and best_score > 0:
             results.append(
                 FindPeopleMatch(
                     base_name=base,
-                    matched_name=partial.name,
+                    matched_name=best.name,
                     match_type="partial",
                 )
             )
