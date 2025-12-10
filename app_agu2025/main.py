@@ -12,7 +12,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, or_, and_
 from sqlalchemy.orm import Session, sessionmaker
 from tqdm.auto import tqdm
 import faiss
@@ -330,16 +330,22 @@ def _process_one_person(base: str, db: Session) -> Optional[FindPeopleMatch]:
         last = parts[-1]
         return last.replace("-", "")
 
-    base_norm = norm_name(base)
+    base_norm = _norm_name(base)
     base_parts = base_norm.split()
     base_last = base_parts[-1] if base_parts else ""
     base_last_norm = norm_last(base)
 
     candidates = (
         db.query(CombinedEntity)
+        .filter(CombinedEntity.type == "Person")
         .filter(
-            CombinedEntity.type == "Person",
-            CombinedEntity.last_name_norm == base_last_norm,
+            or_(
+                CombinedEntity.last_name_norm == base_last_norm,
+                and_(
+                    CombinedEntity.last_name_norm.is_(None),
+                    CombinedEntity.name.ilike(f"%{base_last}%"),
+                ),
+            )
         )
         .all()
     )
