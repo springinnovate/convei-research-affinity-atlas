@@ -21,7 +21,8 @@ RUN pip install --no-cache-dir \
     faiss-cpu \
     fastapi \
     uvicorn[standard] \
-    jinja2
+    jinja2 \
+    tiktoken
 
 
 # Expose FastAPI port

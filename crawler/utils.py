@@ -18,7 +18,7 @@ import time
 from dotenv import load_dotenv
 from openai import OpenAI
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, selectinload
 from tqdm import tqdm
 import faiss
 import numpy as np
@@ -251,13 +251,19 @@ User query: {user_query}
     session = Session()
     result_by_name = defaultdict(str)
     try:
+        ids = [entity_id for score, entity_id in results]
+        entities = (
+            session.query(CombinedEntity)
+            .options(selectinload(CombinedEntity.raw_entities))
+            .filter(CombinedEntity.id.in_(ids))
+            .all()
+        )
+        by_id = {e.id: e for e in entities}
+
         for score, entity_id in results:
-            entity = (
-                session.query(CombinedEntity)
-                .filter(CombinedEntity.id == entity_id)
-                .one()
-            )
-            result_by_name[(entity.name, entity.type)] += entity.text
+            entity = by_id[entity_id]
+            texts = [re.text for re in entity.raw_entities if re.text]
+            result_by_name[(entity.name, entity.type)] += "\n\n".join(texts)
         return result_by_name
     finally:
         session.close()
