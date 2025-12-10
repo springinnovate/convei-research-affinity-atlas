@@ -1,687 +1,566 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>CONVEI Research Affinity Atlas</title>
-        <link
-            rel="stylesheet"
-            href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-        />
-        <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
-        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-        <link rel="icon" href="{{ url_for('static', path='favicon.ico') }}">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CONVEI Research Affinity Atlas</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+    />
+    <link rel="icon" href="{{ url_for('static', path='favicon.ico') }}">
+  </head>
+  <body>
+    <nav class="navbar navbar-expand-lg bg-primary navbar-dark mb-4">
+      <div class="container">
+        <a class="navar-brand" href="#">CONVEI Research Affinity Atlas</a>
+      </div>
+    </nav>
 
+    <div class="container">
+      <h4 class="mb-3">
+        <a href="https://agu.confex.com/agu/agu25/meetingapp.cgi/Home/0" target="_blank">AGU 2025</a>
+        - CONVEI Research Affinity Atlas
+      </h4>
+      <div id="infoContainer" class="mt-4"></div>
 
-    </head>
-    <body>
-        <nav class="navbar navbar-expand-lg bg-primary navbar-dark mb-4">
-            <div class="container">
-                <a class="navar-brand" href="#">CONVEI Research Affinity Atlas</a>
-            </div>
-        </nav>
-
-        <div class="container">
-            <h4 class="mb-3"><a href="https://agu.confex.com/agu/agu25/meetingapp.cgi/Home/0" target="_blank">AGU 2025</a> - CONVEI Research Affinity Atlas</h4>
-            <div id="infoContainer" class="mt-4"></div>
-
-            <h4 class="mt-5 mb-3">Research Matchmaking</h4>
-            <div id="MatchPeopleContainer" class="card">
-              <div class="card-header p-0">
-                <ul class="nav nav-pills nav-fill" id="SearchModeTabs">
-                  <li class="nav-item">
-                    <button class="nav-link active rounded-0" id="SearchModeGeneral" type="button">
-                      General search
-                    </button>
-                  </li>
-                  <li class="nav-item">
-                    <button class="nav-link rounded-0" id="SearchModePeople" type="button">
-                      People finder
-                    </button>
-                  </li>
-                </ul>
-              </div>
-
-              <div class="card-body">
-                <!-- General search mode -->
-                <div id="MatchModeGeneral">
-                  <textarea id="UserInterestText"
-                            class="form-control mb-2"
-                            rows="3"
-                            placeholder="Tell us your topics, keywords, frameworks, areas of interest, and/or anything else, and we’ll use AGU 2025's participant bios, abstracts, and session information to help you discover people whose work aligns with those ideas."></textarea>
-
-                  <button id="MatchPeopleBtn" class="btn btn-primary">
-                    <span id="MatchPeopleBtnText">Find Matches</span>
-                    <span id="MatchPeopleBtnSpinner" class="spinner-border spinner-border-sm d-none"></span>
-                  </button>
-
-                  <div id="MatchResults" class="mt-3"></div>
-                </div>
-
-                <!-- People finder mode -->
-                <div id="MatchModePeople" class="d-none">
-                  <div id="EntitiesSelectContainer">
-                    <!-- The value select element will be inserted here by loadEntities() -->
-                  </div>
-                </div>
-              </div>
-            </div>
+      <h4 class="mt-5 mb-3">Research Matchmaking</h4>
+      <div id="MatchPeopleContainer" class="card">
+        <div class="card-header p-0">
+          <ul class="nav nav-pills nav-fill" id="SearchModeTabs">
+            <li class="nav-item">
+              <button class="nav-link active rounded-0" id="SearchModeGeneral" type="button">
+                General search
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link rounded-0" id="SearchModePeople" type="button">
+                People finder
+              </button>
+            </li>
+          </ul>
         </div>
 
-        <script>
-            const getEl = id => document.getElementById(id);
-            const fetchJSON = (u,o) => fetch(u,o).then(r => r.json());
+        <div class="card-body">
+          <div id="MatchModeGeneral">
+            <textarea id="UserInterestText"
+                      class="form-control mb-2"
+                      rows="3"
+                      placeholder="Tell us your topics, keywords, frameworks, areas of interest, and/or anything else, and we’ll use AGU 2025's participant bios, abstracts, and session information to help you discover people whose work aligns with those ideas."></textarea>
 
-            function createOrGetRow(id){
-              let row = getEl('crawl-row-'+id);
-              if(!row){
-                row = document.createElement('div');
-                row.id = 'crawl-row-'+id;
-                row.className = 'alert alert-info py-1 mb-2';
-                getEl('crawl-status-list').appendChild(row);
-              }
-              return row;
-            }
+            <button id="MatchPeopleBtn" class="btn btn-primary">
+              <span id="MatchPeopleBtnText">Find Matches</span>
+              <span id="MatchPeopleBtnSpinner" class="spinner-border spinner-border-sm d-none"></span>
+            </button>
 
-            const updateRow = (row,msg,done=false)=>
-              (row.textContent = msg,
-               row.className = `alert ${done?'alert-success':'alert-info'} py-1 mb-2`);
+            <div id="MatchResults" class="mt-3"></div>
+          </div>
 
-            async function loadEntities() {
-              const c = getEl('EntitiesSelectContainer');
-              if (!getEl('EntitiesSelect')) {
-                c.innerHTML = `
-                  <select id="EntitiesSelect" multiple style="width:100%"></select>
-                  <div id="bioContainer" class="mt-4"></div>
-                `;
-                const s = $('#EntitiesSelect').select2({
-                  placeholder: 'Search and select Entities',
-                  allowClear: true,
-                  width: '100%'
-                });
+          <div id="MatchModePeople" class="d-none">
+            <label for="PeopleFinderNames" class="form-label">Enter one name per line</label>
+            <textarea id="PeopleFinderNames"
+                      class="form-control mb-2"
+                      rows="4"
+                      placeholder="Ada Lovelace
+Grace Hopper
+Katherine Johnson"></textarea>
 
-                let prev = new Set();
+            <button id="PeopleFinderBtn" class="btn btn-secondary">
+              <span id="PeopleFinderBtnText">(Try to) find people</span>
+              <span id="PeopleFinderBtnSpinner" class="spinner-border spinner-border-sm d-none"></span>
+            </button>
 
-                s.on('change', async () => {
-                  const cur = new Set(s.val() || []);
+            <div id="PeopleFinderResults" class="mt-3"></div>
+          </div>
+        </div>
+      </div>
+    </div>
 
-                  // remove cards for items that were deselected
-                  prev.forEach(id => {
-                    if (!cur.has(id)) {
-                      const el = getEl(`bio-${id}`);
-                      if (el) el.remove();
-                    }
-                  });
+    <script>
+      const getEl = id => document.getElementById(id);
+      const fetchJSON = (u,o) => fetch(u,o).then(r => r.json());
 
-                  // add cards for newly-selected items
-                  const toAdd = [...cur].filter(id => !prev.has(id));
-                  await Promise.all(
-                    toAdd.map(async id => {
-                      const container = getEl('bioContainer');
+      function createOrGetRow(id){
+        let row = getEl('crawl-row-'+id);
+        if(!row){
+          row = document.createElement('div');
+          row.id = 'crawl-row-'+id;
+          row.className = 'alert alert-info py-1 mb-2';
+          getEl('crawl-status-list').appendChild(row);
+        }
+        return row;
+      }
 
-                      // placeholder card
-                      const card = document.createElement('div');
-                      card.id = `bio-${id}`;
-                      card.className = 'alert alert-primary p-3 mb-3';
-                      card.innerHTML = `
-                        <div class="placeholder-glow">
-                          <span class="placeholder col-6"></span>
-                          <span class="placeholder col-12 mt-2"></span>
-                          <span class="placeholder col-8 mt-2"></span>
-                        </div>
-                      `;
-                      container.appendChild(card);
+      const updateRow = (row,msg,done=false)=>
+        (row.textContent = msg,
+         row.className = `alert ${done?'alert-success':'alert-info'} py-1 mb-2`);
 
-                      try {
-                        const [type, name] = id.split(':', 2);
+      async function fetchBio(name) {
+        try {
+          const res = await fetchJSON('/entity_bio', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ name: name })
+          });
+          return res.bio;
+        } catch (e) {
+          console.error(`Error fetching bio for ${name}:`, e);
+          return 'Bio not available.';
+        }
+      }
 
-                        const { name: entityName, bio, url_list } = await fetchJSON('/entity_bio', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ type, name })
-                        });
+      async function showMatches(matches) {
+        const out = getEl('MatchResults');
 
-                        // rebuild pretty card
-                        card.innerHTML = '';
-                        const title = document.createElement('h5');
-                        title.className = 'fw-bold mb-2';
-                        title.textContent = name;
+        if (!matches.length) {
+          out.textContent = 'No relevant people found.';
+          return;
+        }
 
-                        const bioEl = document.createElement('div');
-                        bioEl.className = 'mb-2';
+        out.innerHTML = '';
 
-                        // preserve line breaks into paragraphs
-                        const parts = String(bio || '').split(/\n{2,}|\r?\n/).filter(Boolean);
-                        if (parts.length === 0) {
-                          const p = document.createElement('p');
-                          p.className = 'mb-2';
-                          p.textContent = 'Bio not available.';
-                          bioEl.appendChild(p);
-                        } else {
-                          parts.forEach(txt => {
-                            const p = document.createElement('p');
-                            p.className = 'mb-2';
-                            p.textContent = txt.trim();
-                            bioEl.appendChild(p);
-                          });
-                        }
+        for (const m of matches) {
+          const bio = await fetchBio(m.name);
 
-                        card.appendChild(title);
-                        card.appendChild(bioEl);
+          const urlList = m.urls ? `
+            <ul>${m.urls.map(url => `<li><a href="${url}" target="_blank">${url}</a></li>`).join('')}</ul>
+          ` : '';
 
-                        if (Array.isArray(url_list) && url_list.length) {
-                          const listWrap = document.createElement('div');
-                          listWrap.className = 'mt-2';
+          const matchEl = document.createElement('div');
+          matchEl.className = 'alert alert-info py-1 mb-2';
 
-                          const ul = document.createElement('ul');
-                          ul.className = 'small mb-0 ps-3';
-                          url_list.forEach(u => {
-                            if (!u) return;
-                            const li = document.createElement('li');
-                            const a = document.createElement('a');
-                            a.href = u;
-                            a.target = '_blank';
-                            a.rel = 'noopener noreferrer';
-                            a.textContent = u;
-                            li.appendChild(a);
-                            ul.appendChild(li);
-                          });
+          matchEl.innerHTML = `
+            <strong>${m.name}</strong> — score ${m.relevance_score}<br>
+            <em>${m.rationale}</em><br>
+            <small>${m.bio_quote}</small>
+            <div class="mt-2"><strong>Bio:</strong> ${bio}</div>
+            ${urlList}
+          `;
 
-                          listWrap.appendChild(ul);
-                          card.appendChild(listWrap);
-                        }
-                      } catch (e) {
-                        console.error('Error fetching bio:', e);
-                        card.className = 'alert alert-danger p-3 mb-3';
-                        card.textContent = `Failed to load bio for ${id}`;
-                      }
-                    })
-                  );
+          out.appendChild(matchEl);
+        }
+      }
 
-                  prev = cur;
-                });
-              }
+      let matchProgressTimer = null;
 
+      getEl('MatchPeopleBtn').addEventListener('click', async () => {
+        const btn  = getEl('MatchPeopleBtn'),
+              txt  = getEl('MatchPeopleBtnText'),
+              spin = getEl('MatchPeopleBtnSpinner'),
+              box  = getEl('UserInterestText'),
+              input = (box.value || '').trim();
+
+        if (!input) return;
+
+        btn.disabled = true;
+        box.disabled = true;
+        txt.textContent = 'Starting...';
+        spin.classList.remove('d-none');
+
+        try {
+          const { job_id } = await fetchJSON('/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: input })
+          });
+
+          await new Promise((resolve, reject) => {
+            matchProgressTimer = setInterval(async () => {
               try {
-                const { entities } = await fetchJSON('/entities/');
-                const sel = getEl('EntitiesSelect');
-
-                // existing keys like "Person:Alice Smith"
-                const existing = new Set(
-                  [...sel.options].map(o => `${o.dataset.type}:${o.dataset.name}`)
-                );
-
-                entities.forEach(({ name, type }) => {
-                  const key = `${type}:${name}`;
-                  if (existing.has(key)) return;
-
-                  const label = `${type}: ${name}`;
-                  const opt = new Option(label, key);
-                  opt.dataset.type = type;
-                  opt.dataset.name = name;
-                  sel.add(opt);
-                });
-
-                $(sel).trigger('change.select2');
+                const { done, total, status, message } = await fetchJSON(`/search_progress?job_id=${encodeURIComponent(job_id)}`);
+                if (total > 0) {
+                  txt.textContent = `Matching... (${done} of ${total} chunks done) -- Do not navigate away from the page`;
+                } else {
+                  txt.textContent = 'Matching...';
+                }
+                if (status === 'error') {
+                  clearInterval(matchProgressTimer);
+                  matchProgressTimer = null;
+                  reject(new Error(message || 'Search failed'));
+                }
+                if (status === 'done') {
+                  clearInterval(matchProgressTimer);
+                  matchProgressTimer = null;
+                  resolve();
+                }
               } catch (e) {
-                console.error('Failed to load entities:', e);
-                const ctn = getEl('EntitiesSelectContainer');
-                ctn.innerHTML = `
-                  <div class="alert alert-danger" role="alert">
-                    Failed to load entities.
-                  </div>`;
+                clearInterval(matchProgressTimer);
+                matchProgressTimer = null;
+                reject(e);
               }
+            }, 1000);
+          });
+
+          const result = await fetchJSON(`/search_result?job_id=${encodeURIComponent(job_id)}`);
+          renderMatches(result);
+
+        } catch (e) {
+          console.error('Matching error:', e);
+          renderMatches({ query: input, matches: [], notes: 'Error fetching matches.' });
+        } finally {
+          btn.disabled = false;
+          box.disabled = false;
+          txt.textContent = 'Find Matches';
+          spin.classList.add('d-none');
+        }
+      });
+
+      const bioCache = new Map();
+
+      function attachBioHover(nameEl, entityName) {
+        if (!entityName || entityName === 'Unknown') return;
+
+        let tooltip = null;
+        let hideTimer = null;
+
+        const showTooltip = async () => {
+          if (!tooltip) {
+            tooltip = document.createElement('div');
+            tooltip.className = 'custom-bio-tooltip alert alert-info shadow p-3';
+            tooltip.style.position = 'absolute';
+            tooltip.style.zIndex = 9999;
+            tooltip.style.width = '600px';
+            tooltip.style.maxWidth = '95vw';
+            tooltip.style.maxHeight = '60vh';
+            tooltip.style.overflow = 'auto';
+            tooltip.style.pointerEvents = 'auto';
+            tooltip.innerHTML = '<em>Loading bio...</em>';
+            document.body.appendChild(tooltip);
+
+            tooltip.addEventListener('mouseenter', () => {
+              if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+            });
+            tooltip.addEventListener('mouseleave', () => {
+              scheduleHide();
+            });
+          }
+
+          const rect = nameEl.getBoundingClientRect();
+          tooltip.style.top = `${rect.bottom + window.scrollY + 6}px`;
+          tooltip.style.left = `${rect.left + window.scrollX}px`;
+
+          try {
+            let data = bioCache.get(entityName);
+            if (!data) {
+              data = await fetchJSON('/entity_bio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: entityName })
+              });
+              bioCache.set(entityName, data);
             }
 
-            // Optional: reuse this if you need a direct helper elsewhere
-            async function fetchBio(name) {
-              try {
-                const res = await fetchJSON('/entity_bio', {
-                  method: 'POST',
-                  headers: {'Content-Type': 'application/json'},
-                  body: JSON.stringify({ name: name })
-                });
-                return res.bio;
-              } catch (e) {
-                console.error(`Error fetching bio for ${name}:`, e);
-                return 'Bio not available.';
-              }
+            const { name, bio, url_list } = data || {};
+            tooltip.innerHTML = '';
+
+            const title = document.createElement('h5');
+            title.className = 'fw-bold mb-2';
+            title.textContent = name || entityName;
+            tooltip.appendChild(title);
+
+            const bioEl = document.createElement('div');
+            bioEl.className = 'mb-0';
+
+            const parts = String(bio || '').split(/\n{2,}|\r?\n/).filter(Boolean);
+            if (parts.length === 0) {
+              const p = document.createElement('p');
+              p.className = 'mb-0';
+              p.textContent = 'Bio not available.';
+              bioEl.appendChild(p);
+            } else {
+              parts.forEach(txt => {
+                const p = document.createElement('p');
+                p.className = 'mb-2';
+                p.textContent = txt.trim();
+                bioEl.appendChild(p);
+              });
             }
 
-            async function showMatches(matches) {
-              const out = getEl('MatchResults');
+            tooltip.appendChild(bioEl);
 
-              if (!matches.length) {
-                out.textContent = 'No relevant people found.';
-                return;
-              }
+            if (Array.isArray(url_list) && url_list.length) {
+              const urlsWrap = document.createElement('div');
+              urlsWrap.className = 'mt-2';
 
-              out.innerHTML = '';
+              const ul = document.createElement('ul');
+              ul.className = 'mb-0 ps-3';
 
-              for (const m of matches) {
-                const bio = await fetchBio(m.name);
+              url_list.forEach(u => {
+                if (!u) return;
+                const li = document.createElement('li');
+                const a = document.createElement('a');
+                a.href = u;
+                a.textContent = u;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                li.appendChild(a);
+                ul.appendChild(li);
+              });
 
-                const urlList = m.urls ? `
-                  <ul>${m.urls.map(url => `<li><a href="${url}" target="_blank">${url}</a></li>`).join('')}</ul>
-                ` : '';
+              urlsWrap.appendChild(ul);
+              tooltip.appendChild(urlsWrap);
+            }
+          } catch (err) {
+            console.error('Tooltip bio fetch error:', err);
+            tooltip.innerHTML = '<span class="text-danger">Error loading bio.</span>';
+          }
+        };
 
-                const matchEl = document.createElement('div');
-                matchEl.className = 'alert alert-info py-1 mb-2';
+        const scheduleHide = () => {
+          if (hideTimer) clearTimeout(hideTimer);
+          hideTimer = setTimeout(() => {
+            if (tooltip) {
+              tooltip.remove();
+              tooltip = null;
+            }
+          }, 200);
+        };
 
-                matchEl.innerHTML = `
-                  <strong>${m.name}</strong> — score ${m.relevance_score}<br>
-                  <em>${m.rationale}</em><br>
-                  <small>${m.bio_quote}</small>
-                  <div class="mt-2"><strong>Bio:</strong> ${bio}</div>
-                  ${urlList}
-                `;
+        nameEl.addEventListener('mouseenter', async () => {
+          nameEl.style.textDecoration = 'underline';
+          nameEl.style.color = '#0d6efd';
+          if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+          await showTooltip();
+        });
 
-                out.appendChild(matchEl);
-              }
+        nameEl.addEventListener('mouseleave', () => {
+          nameEl.style.textDecoration = '';
+          nameEl.style.color = '';
+          scheduleHide();
+        });
+      }
+
+      function renderMatches(payload) {
+        const target = getEl('MatchResults');
+        target.innerHTML = '';
+
+        if (!payload || !Array.isArray(payload.matches) || payload.matches.length === 0) {
+          target.innerHTML = `
+            <div class="alert alert-warning" role="alert">
+              No matches found for this query.
+            </div>
+          `;
+          if (payload?.notes) {
+            const notes = document.createElement('div');
+            notes.className = 'text-muted small mt-1';
+            notes.textContent = payload.notes;
+            target.appendChild(notes);
+          }
+          return;
+        }
+
+        const hdr = document.createElement('div');
+        hdr.className = 'mb-3';
+        hdr.innerHTML = `
+          <div class="fw-semibold">Query</div>
+          <div class="text-muted">${escapeHtml(payload.query || '')}</div>
+        `;
+        target.appendChild(hdr);
+
+        const list = document.createElement('div');
+        list.className = 'd-flex flex-column gap-3';
+        target.appendChild(list);
+
+        payload.matches.forEach((m, idx) => {
+          if (!m.is_relevant) {
+            return;
+          }
+          const card = document.createElement('div');
+          card.className = 'card shadow-sm';
+
+          const body = document.createElement('div');
+          body.className = 'card-body';
+
+          const title = document.createElement('div');
+          title.className = 'd-flex align-items-start justify-content-between flex-wrap gap-2';
+
+          const nameEl = document.createElement('h5');
+          nameEl.className = 'card-title mb-0 fw-bold person-name';
+          nameEl.style.cursor = 'pointer';
+
+          const numSpan = document.createElement('span');
+          numSpan.className = 'text-muted me-2';
+          numSpan.textContent = `${idx + 1}.`;
+
+          const textSpan = document.createElement('span');
+          textSpan.textContent = m.name || 'Unknown';
+
+          nameEl.appendChild(numSpan);
+          nameEl.appendChild(textSpan);
+
+          title.appendChild(nameEl);
+
+          attachBioHover(textSpan, m.name || 'Unknown');
+
+          body.appendChild(title);
+
+          if (m.answer || m.reason) {
+            const desc = document.createElement('p');
+            desc.className = 'mt-2 mb-2';
+
+            if (m.answer) {
+              const answerSpan = document.createElement('span');
+              answerSpan.textContent = m.answer;
+              desc.appendChild(answerSpan);
             }
 
-            let matchProgressTimer = null;
+            if (m.reason) {
+              const reasonSpan = document.createElement('span');
+              reasonSpan.className = 'text-muted ms-2';
+              reasonSpan.textContent = m.reason;
+              desc.appendChild(reasonSpan);
+            }
 
-            getEl('MatchPeopleBtn').addEventListener('click', async () => {
-              const btn  = getEl('MatchPeopleBtn'),
-                    txt  = getEl('MatchPeopleBtnText'),
-                    spin = getEl('MatchPeopleBtnSpinner'),
-                    box  = getEl('UserInterestText'),
-                    input = (box.value || '').trim();
+            body.appendChild(desc);
+          }
 
-              if (!input) return;
+          if (Array.isArray(m.supporting_phrases) && m.supporting_phrases.length) {
+            const sigWrap = document.createElement('div');
+            sigWrap.className = 'small text-muted';
 
-              // Disable UI while running
-              btn.disabled = true;
-              box.disabled = true; // disable text input
-              txt.textContent = 'Starting...';
-              spin.classList.remove('d-none');
+            const ul = document.createElement('ul');
+            ul.className = 'mb-0 ps-3';
 
-              try {
-                // 1) start job
-                const { job_id } = await fetchJSON('/search', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ query: input })
-                });
-
-                // 2) poll progress
-                await new Promise((resolve, reject) => {
-                  matchProgressTimer = setInterval(async () => {
-                    try {
-                      const { done, total, status, message } = await fetchJSON(`/search_progress?job_id=${encodeURIComponent(job_id)}`);
-                      if (total > 0) {
-                        txt.textContent = `Matching... (${done} of ${total} chunks done) -- Do not navigate away from the page`;
-                      } else {
-                        txt.textContent = 'Matching...';
-                      }
-                      if (status === 'error') {
-                        clearInterval(matchProgressTimer);
-                        matchProgressTimer = null;
-                        reject(new Error(message || 'Search failed'));
-                      }
-                      if (status === 'done') {
-                        clearInterval(matchProgressTimer);
-                        matchProgressTimer = null;
-                        resolve();
-                      }
-                    } catch (e) {
-                      clearInterval(matchProgressTimer);
-                      matchProgressTimer = null;
-                      reject(e);
-                    }
-                  }, 1000);
-                });
-
-                // 3) fetch result
-                const result = await fetchJSON(`/search_result?job_id=${encodeURIComponent(job_id)}`);
-                renderMatches(result);
-
-              } catch (e) {
-                console.error('Matching error:', e);
-                renderMatches({ query: input, matches: [], notes: 'Error fetching matches.' });
-              } finally {
-                // Re-enable UI
-                btn.disabled = false;
-                box.disabled = false;
-                txt.textContent = 'Find Matches';
-                spin.classList.add('d-none');
-              }
+            m.supporting_phrases.forEach(p => {
+              if (!p) return;
+              const li = document.createElement('li');
+              li.textContent = p;
+              ul.appendChild(li);
             });
 
-            const bioCache = new Map(); // name -> {name, bio}
+            sigWrap.appendChild(ul);
+            body.appendChild(sigWrap);
+          }
 
-            function attachBioHover(nameEl, entityName) {
-              if (!entityName || entityName === 'Unknown') return;
+          if (Array.isArray(m.url_list) && m.url_list.length) {
+            const urlWrap = document.createElement('div');
+            urlWrap.className = 'small mt-2';
 
-              let tooltip = null;
-              let hideTimer = null;
+            const label = document.createElement('div');
+            label.className = 'text-muted mb-1';
+            label.textContent = 'Seen in these links:';
+            urlWrap.appendChild(label);
 
-              const showTooltip = async () => {
-                // create tooltip if needed
-                if (!tooltip) {
-                  tooltip = document.createElement('div');
-                  tooltip.className = 'custom-bio-tooltip alert alert-info shadow p-3';
-                  tooltip.style.position = 'absolute';
-                  tooltip.style.zIndex = 9999;
-                  tooltip.style.width = '600px';
-                  tooltip.style.maxWidth = '95vw';
-                  tooltip.style.maxHeight = '60vh';
-                  tooltip.style.overflow = 'auto';
-                  tooltip.style.pointerEvents = 'auto'; // allow hover inside tooltip
-                  tooltip.innerHTML = '<em>Loading bio...</em>';
-                  document.body.appendChild(tooltip);
+            const ul = document.createElement('ul');
+            ul.className = 'mb-0 ps-3';
 
-                  // Allow staying open when hovering tooltip
-                  tooltip.addEventListener('mouseenter', () => {
-                    if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
-                  });
-                  tooltip.addEventListener('mouseleave', () => {
-                    scheduleHide();
-                  });
-                }
-
-                // position near name
-                const rect = nameEl.getBoundingClientRect();
-                tooltip.style.top = `${rect.bottom + window.scrollY + 6}px`;
-                tooltip.style.left = `${rect.left + window.scrollX}px`;
-
-                try {
-                  let data = bioCache.get(entityName);
-                  if (!data) {
-                    data = await fetchJSON('/entity_bio', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ name: entityName })
-                    });
-                    bioCache.set(entityName, data);
-                  }
-
-                  const { name, bio, url_list } = data || {};
-                  tooltip.innerHTML = '';
-
-                  const title = document.createElement('h5');
-                  title.className = 'fw-bold mb-2';
-                  title.textContent = name || entityName;
-                  tooltip.appendChild(title);
-
-                  const bioEl = document.createElement('div');
-                  bioEl.className = 'mb-0';
-
-                  const parts = String(bio || '').split(/\n{2,}|\r?\n/).filter(Boolean);
-                  if (parts.length === 0) {
-                    const p = document.createElement('p');
-                    p.className = 'mb-0';
-                    p.textContent = 'Bio not available.';
-                    bioEl.appendChild(p);
-                  } else {
-                    parts.forEach(txt => {
-                      const p = document.createElement('p');
-                      p.className = 'mb-2';
-                      p.textContent = txt.trim();
-                      bioEl.appendChild(p);
-                    });
-                  }
-
-                  tooltip.appendChild(bioEl);
-
-                  if (Array.isArray(url_list) && url_list.length) {
-                    const urlsWrap = document.createElement('div');
-                    urlsWrap.className = 'mt-2';
-
-                    const ul = document.createElement('ul');
-                    ul.className = 'mb-0 ps-3';
-
-                    url_list.forEach(u => {
-                      if (!u) return;
-                      const li = document.createElement('li');
-                      const a = document.createElement('a');
-                      a.href = u;
-                      a.textContent = u;
-                      a.target = '_blank';
-                      a.rel = 'noopener noreferrer';
-                      li.appendChild(a);
-                      ul.appendChild(li);
-                    });
-
-                    urlsWrap.appendChild(ul);
-                    tooltip.appendChild(urlsWrap);
-                  }
-                } catch (err) {
-                  console.error('Tooltip bio fetch error:', err);
-                  tooltip.innerHTML = '<span class="text-danger">Error loading bio.</span>';
-                }
-              };
-
-              const scheduleHide = () => {
-                if (hideTimer) clearTimeout(hideTimer);
-                hideTimer = setTimeout(() => {
-                  if (tooltip) {
-                    tooltip.remove();
-                    tooltip = null;
-                  }
-                }, 200); // small delay so user can move from name to tooltip
-              };
-
-              // Hover behavior on the NAME (not the number prefix)
-              nameEl.addEventListener('mouseenter', async () => {
-                nameEl.style.textDecoration = 'underline';
-                nameEl.style.color = '#0d6efd';
-                if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
-                await showTooltip();
-              });
-
-              nameEl.addEventListener('mouseleave', () => {
-                nameEl.style.textDecoration = '';
-                nameEl.style.color = '';
-                scheduleHide();
-              });
-            }
-
-
-            function renderMatches(payload) {
-              const target = getEl('MatchResults');
-              target.innerHTML = '';
-
-              if (!payload || !Array.isArray(payload.matches) || payload.matches.length === 0) {
-                target.innerHTML = `
-                  <div class="alert alert-warning" role="alert">
-                    No matches found for this query.
-                  </div>
-                `;
-                if (payload?.notes) {
-                  const notes = document.createElement('div');
-                  notes.className = 'text-muted small mt-1';
-                  notes.textContent = payload.notes;
-                  target.appendChild(notes);
-                }
-                return;
-              }
-
-              const hdr = document.createElement('div');
-              hdr.className = 'mb-3';
-              hdr.innerHTML = `
-                <div class="fw-semibold">Query</div>
-                <div class="text-muted">${escapeHtml(payload.query || '')}</div>
-              `;
-              target.appendChild(hdr);
-
-              // Results list
-              const list = document.createElement('div');
-              list.className = 'd-flex flex-column gap-3';
-              target.appendChild(list);
-
-              payload.matches.forEach((m, idx) => {
-                if (!m.is_relevant) {
-                  return
-                }
-                const card = document.createElement('div');
-                card.className = 'card shadow-sm';
-
-                const body = document.createElement('div');
-                body.className = 'card-body';
-
-                // Title row: index + name
-                const title = document.createElement('div');
-                title.className = 'd-flex align-items-start justify-content-between flex-wrap gap-2';
-
-                // inside renderMatches loop
-                const nameEl = document.createElement('h5');
-                nameEl.className = 'card-title mb-0 fw-bold person-name';
-                nameEl.style.cursor = 'pointer';
-
-                // Number span (muted)
-                const numSpan = document.createElement('span');
-                numSpan.className = 'text-muted me-2';
-                numSpan.textContent = `${idx + 1}.`;
-
-                // Name span (display only)
-                const textSpan = document.createElement('span');
-                textSpan.textContent = m.name || 'Unknown';
-
-                nameEl.appendChild(numSpan);
-                nameEl.appendChild(textSpan);
-
-                title.appendChild(nameEl);
-
-                // Attach hover with the raw name (no number)
-                attachBioHover(textSpan, m.name || 'Unknown');
-
-                body.appendChild(title);
-
-                // answer + reason at same visual level
-                if (m.answer || m.reason) {
-                  const desc = document.createElement('p');
-                  desc.className = 'mt-2 mb-2';
-
-                  if (m.answer) {
-                    const answerSpan = document.createElement('span');
-                    answerSpan.textContent = m.answer;
-                    desc.appendChild(answerSpan);
-                  }
-
-                  if (m.reason) {
-                    const reasonSpan = document.createElement('span');
-                    reasonSpan.className = 'text-muted ms-2';
-                    reasonSpan.textContent = m.reason;
-                    desc.appendChild(reasonSpan);
-                  }
-
-                  body.appendChild(desc);
-                }
-
-                if (Array.isArray(m.supporting_phrases) && m.supporting_phrases.length) {
-                  const sigWrap = document.createElement('div');
-                  sigWrap.className = 'small text-muted';
-
-                  const ul = document.createElement('ul');
-                  ul.className = 'mb-0 ps-3';
-
-                  m.supporting_phrases.forEach(p => {
-                    if (!p) return;
-                    const li = document.createElement('li');
-                    li.textContent = p;
-                    ul.appendChild(li);
-                  });
-
-                  sigWrap.appendChild(ul);
-                  body.appendChild(sigWrap);
-                }
-
-                if (Array.isArray(m.url_list) && m.url_list.length) {
-                  const urlWrap = document.createElement('div');
-                  urlWrap.className = 'small mt-2';
-
-                  const label = document.createElement('div');
-                  label.className = 'text-muted mb-1';
-                  label.textContent = 'Seen in these links:';
-                  urlWrap.appendChild(label);
-
-                  const ul = document.createElement('ul');
-                  ul.className = 'mb-0 ps-3';
-
-                  m.url_list.forEach(u => {
-                    if (!u) return;
-                    const li = document.createElement('li');
-                    const a = document.createElement('a');
-                    a.href = u;
-                    a.textContent = u;
-                    a.target = '_blank';
-                    a.rel = 'noopener noreferrer';
-                    li.appendChild(a);
-                    ul.appendChild(li);
-                  });
-
-                  urlWrap.appendChild(ul);
-                  body.appendChild(urlWrap);
-                }
-
-                card.appendChild(body);
-                list.appendChild(card);
-              });
-              // Notes (optional)
-              if (payload.notes) {
-                const notes = document.createElement('div');
-                notes.className = 'text-muted small mt-2';
-                notes.textContent = payload.notes;
-                target.appendChild(notes);
-              }
-            }
-
-            // ---- Helpers ----
-
-            function relationBadgeClass(rel) {
-              const r = String(rel || '').toLowerCase();
-              if (r === 'direct') return 'text-bg-primary';
-              if (r === 'adjacent') return 'text-bg-secondary';
-              if (r === 'emerging') return 'text-bg-warning';
-              return 'text-bg-light';
-            }
-
-            function confidenceBadgeClass(c) {
-              const v = String(c || '').toLowerCase();
-              if (v === 'high') return 'text-bg-success';
-              if (v === 'medium') return 'text-bg-info';
-              if (v === 'low') return 'text-bg-light';
-              return 'text-bg-light';
-            }
-
-            function escapeHtml(str) {
-              return String(str)
-                .replaceAll('&', '&amp;')
-                .replaceAll('<', '&lt;')
-                .replaceAll('>', '&gt;')
-                .replaceAll('"', '&quot;')
-                .replaceAll("'", '&#039;');
-            }
-
-            document.addEventListener('DOMContentLoaded', () => {
-              const generalTab = getEl('SearchModeGeneral');
-              const peopleTab = getEl('SearchModePeople');
-              const generalPanel = getEl('MatchModeGeneral');
-              const peoplePanel = getEl('MatchModePeople');
-              let peopleInit = false;
-
-              generalTab.addEventListener('click', () => {
-                generalTab.classList.add('active');
-                peopleTab.classList.remove('active');
-                generalPanel.classList.remove('d-none');
-                peoplePanel.classList.add('d-none');
-              });
-
-              peopleTab.addEventListener('click', () => {
-                peopleTab.classList.add('active');
-                generalTab.classList.remove('active');
-                peoplePanel.classList.remove('d-none');
-                generalPanel.classList.add('d-none');
-                if (!peopleInit) {
-                  loadEntities();
-                  peopleInit = true;
-                }
-              });
+            m.url_list.forEach(u => {
+              if (!u) return;
+              const li = document.createElement('li');
+              const a = document.createElement('a');
+              a.href = u;
+              a.textContent = u;
+              a.target = '_blank';
+              a.rel = 'noopener noreferrer';
+              li.appendChild(a);
+              ul.appendChild(li);
             });
-            </script>
-        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    </body>
+
+            urlWrap.appendChild(ul);
+            body.appendChild(urlWrap);
+          }
+
+          card.appendChild(body);
+          list.appendChild(card);
+        });
+
+        if (payload.notes) {
+          const notes = document.createElement('div');
+          notes.className = 'text-muted small mt-2';
+          notes.textContent = payload.notes;
+          target.appendChild(notes);
+        }
+      }
+
+      function relationBadgeClass(rel) {
+        const r = String(rel || '').toLowerCase();
+        if (r === 'direct') return 'text-bg-primary';
+        if (r === 'adjacent') return 'text-bg-secondary';
+        if (r === 'emerging') return 'text-bg-warning';
+        return 'text-bg-light';
+      }
+
+      function confidenceBadgeClass(c) {
+        const v = String(c || '').toLowerCase();
+        if (v === 'high') return 'text-bg-success';
+        if (v === 'medium') return 'text-bg-info';
+        if (v === 'low') return 'text-bg-light';
+        return 'text-bg-light';
+      }
+
+      function escapeHtml(str) {
+        return String(str)
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#039;');
+      }
+
+      getEl('PeopleFinderBtn').addEventListener('click', () => {
+        const btn = getEl('PeopleFinderBtn');
+        const txt = getEl('PeopleFinderBtnText');
+        const spin = getEl('PeopleFinderBtnSpinner');
+        const box = getEl('PeopleFinderNames');
+        const out = getEl('PeopleFinderResults');
+
+        const names = box.value
+          .split('\n')
+          .map(s => s.trim())
+          .filter(s => s.length > 0);
+
+        btn.disabled = true;
+        txt.textContent = 'Working...';
+        spin.classList.remove('d-none');
+
+        out.innerHTML = '';
+        if (names.length === 0) {
+          out.innerHTML = `
+            <div class="alert alert-warning" role="alert">
+              Please enter at least one name.
+            </div>
+          `;
+        } else {
+          const list = document.createElement('ul');
+          list.className = 'mb-0';
+          names.forEach(n => {
+            const li = document.createElement('li');
+            li.textContent = n;
+            list.appendChild(li);
+          });
+          const wrapper = document.createElement('div');
+          wrapper.className = 'alert alert-info';
+          wrapper.innerHTML = '<div class="fw-semibold mb-1">Parsed names (no lookup yet):</div>';
+          wrapper.appendChild(list);
+          out.appendChild(wrapper);
+        }
+
+        btn.disabled = false;
+        txt.textContent = '(Try to) find people';
+        spin.classList.add('d-none');
+      });
+
+      document.addEventListener('DOMContentLoaded', () => {
+        const generalTab = getEl('SearchModeGeneral');
+        const peopleTab = getEl('SearchModePeople');
+        const generalPanel = getEl('MatchModeGeneral');
+        const peoplePanel = getEl('MatchModePeople');
+
+        generalTab.addEventListener('click', () => {
+          generalTab.classList.add('active');
+          peopleTab.classList.remove('active');
+          generalPanel.classList.remove('d-none');
+          peoplePanel.classList.add('d-none');
+        });
+
+        peopleTab.addEventListener('click', () => {
+          peopleTab.classList.add('active');
+          generalTab.classList.remove('active');
+          peoplePanel.classList.remove('d-none');
+          generalPanel.classList.add('d-none');
+        });
+      });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  </body>
 </html>
