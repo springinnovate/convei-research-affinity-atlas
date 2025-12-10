@@ -90,7 +90,7 @@ class CombinedEntity(Base):
     id = Column(Integer, primary_key=True)
     type = Column(String, index=True, nullable=False)
     name = Column(String, index=True, nullable=False)
-    last_name_norm = Column(String, Index=True, nullable=True)
+    last_name_norm = Column(String, index=True, nullable=True)
     text = Column(Text)
     embedding = Column(LargeBinary, nullable=True)
 

@@ -99,6 +99,73 @@ gillian galford
       let matchProgressTimer = null;
       let peopleFindProgressTimer = null;
 
+      getEl('MatchPeopleBtn').addEventListener('click', async () => {
+          const btn  = getEl('MatchPeopleBtn');
+          const txt  = getEl('MatchPeopleBtnText');
+          const spin = getEl('MatchPeopleBtnSpinner');
+          const box  = getEl('UserInterestText');
+          const input = (box.value || '').trim();
+
+          if (!input) return;
+
+          btn.disabled = true;
+          box.disabled = true;
+          txt.textContent = 'Starting...';
+          spin.classList.remove('d-none');
+
+          try {
+            const { job_id } = await fetchJSON('/search', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ query: input })
+            });
+
+            await new Promise((resolve, reject) => {
+              matchProgressTimer = setInterval(async () => {
+                try {
+                  const { done, total, status, message } = await fetchJSON(
+                    `/search_progress?job_id=${encodeURIComponent(job_id)}`
+                  );
+
+                  if (total > 0) {
+                    txt.textContent =
+                      `Matching... (${done} of ${total} chunks done) -- Do not navigate away from the page`;
+                  } else {
+                    txt.textContent = 'Matching...';
+                  }
+
+                  if (status === 'error') {
+                    clearInterval(matchProgressTimer);
+                    matchProgressTimer = null;
+                    reject(new Error(message || 'Search failed'));
+                  }
+                  if (status === 'done') {
+                    clearInterval(matchProgressTimer);
+                    matchProgressTimer = null;
+                    resolve();
+                  }
+                } catch (e) {
+                  clearInterval(matchProgressTimer);
+                  matchProgressTimer = null;
+                  reject(e);
+                }
+              }, 1000);
+            });
+
+            const result = await fetchJSON(
+              `/search_result?job_id=${encodeURIComponent(job_id)}`
+            );
+            renderMatches(result);
+          } catch (e) {
+            console.error('Matching error:', e);
+            renderMatches({ query: input, matches: [], notes: 'Error fetching matches.' });
+          } finally {
+            btn.disabled = false;
+            box.disabled = false;
+            txt.textContent = 'Find Matches';
+            spin.classList.add('d-none');
+          }
+        });
 
       function renderMatches(payload) {
         const target = getEl('MatchResults');
