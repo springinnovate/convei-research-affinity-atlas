@@ -197,7 +197,7 @@ def search_index(index, ids, query_bytes, top_k=10):
 
 
 def build_entity_context_for_query(
-    user_query, db_url, embedding_index, entity_ids, config
+    user_query, db_url, embedding_index, entity_ids, config, types
 ):
     """Rewrite a user query, embed it, and build an entity context string.
 
@@ -214,9 +214,10 @@ def build_entity_context_for_query(
         entity_ids: List of entity IDs aligned with the index vectors.
         config: Configuration mapping with search parameters, including
             'max_fetch_retries' for the embedding call.
+        types: list of string of types to filter through
 
     Returns:
-        str: Newline-separated "name: text" lines for the most similar
+        dict: mapping (name, type) -> concatenated text for the most similar
         entities to the rewritten query.
     """
     rewrite_prompt = f"""
@@ -244,7 +245,9 @@ User query: {user_query}
     query_embedding = array("f")
     query_embedding.frombytes(query_embedding_bytes)
 
-    results = search_index(embedding_index, entity_ids, query_embedding, top_k=50)
+    results = search_index(
+        embedding_index, entity_ids, query_embedding, top_k=50
+    )
 
     engine = create_engine(db_url)
     Session = sessionmaker(bind=engine)
@@ -262,8 +265,16 @@ User query: {user_query}
 
         for score, entity_id in results:
             entity = by_id[entity_id]
+            if entity.type not in types:
+                continue
             texts = [re.text for re in entity.raw_entities if re.text]
-            result_by_name[(entity.name, entity.type)] += "\n\n".join(texts)
+            if not texts:
+                continue
+            key = (entity.name, entity.type)
+            if result_by_name[key]:
+                result_by_name[key] += "\n\n" + "\n\n".join(texts)
+            else:
+                result_by_name[key] = "\n\n".join(texts)
         return result_by_name
     finally:
         session.close()
