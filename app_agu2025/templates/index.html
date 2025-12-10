@@ -46,7 +46,7 @@
             <textarea id="UserInterestText"
                       class="form-control mb-2"
                       rows="3"
-                      placeholder="Tell us your topics, keywords, frameworks, areas of interest, and/or anything else, and we'll use AGU 2025's participant bios, abstracts, and session information to help you discover people whose work aligns with those ideas."></textarea>
+                      placeholder="Tell us your topics, keywords, frameworks, areas of interest, and/or anything else, we'll use AGU 2025's participant bios, abstracts, and session information to help you discover people whose work aligns with those ideas."></textarea>
 
             <button id="MatchPeopleBtn" class="btn btn-primary">
               <span id="MatchPeopleBtnText">Find Matches</span>
@@ -345,7 +345,7 @@ Katherine Johnson"></textarea>
           generalPanel.classList.add('d-none');
         });
 
-        peopleFinderBtn.addEventListener('click', () => {
+        peopleFinderBtn.addEventListener('click', async () => {
           const btn = getEl('PeopleFinderBtn');
           const txt = getEl('PeopleFinderBtnText');
           const spin = getEl('PeopleFinderBtnSpinner');
@@ -360,32 +360,84 @@ Katherine Johnson"></textarea>
           btn.disabled = true;
           txt.textContent = 'Working...';
           spin.classList.remove('d-none');
-
           out.innerHTML = '';
+
           if (names.length === 0) {
             out.innerHTML = `
               <div class="alert alert-warning" role="alert">
                 Please enter at least one name.
               </div>
             `;
-          } else {
-            const list = document.createElement('ul');
-            list.className = 'mb-0';
-            names.forEach(n => {
-              const li = document.createElement('li');
-              li.textContent = n;
-              list.appendChild(li);
-            });
-            const wrapper = document.createElement('div');
-            wrapper.className = 'alert alert-info';
-            wrapper.innerHTML = '<div class="fw-semibold mb-1">Parsed names (no lookup yet):</div>';
-            wrapper.appendChild(list);
-            out.appendChild(wrapper);
+            btn.disabled = false;
+            txt.textContent = '(Try to) find people';
+            spin.classList.add('d-none');
+            return;
           }
 
-          btn.disabled = false;
-          txt.textContent = '(Try to) find people';
-          spin.classList.add('d-none');
+          try {
+            const matches = await fetchJSON('/find_people', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ names })
+            });
+
+            if (!Array.isArray(matches) || matches.length === 0) {
+              out.innerHTML = `
+                <div class="alert alert-warning" role="alert">
+                  No matches returned.
+                </div>
+              `;
+            } else {
+              const list = document.createElement('div');
+              list.className = 'list-group';
+
+              matches.forEach(m => {
+                const item = document.createElement('div');
+                item.className = 'list-group-item d-flex justify-content-between align-items-start';
+
+                const left = document.createElement('div');
+                left.innerHTML = `
+                  <div><strong>${m.base_name || ''}</strong></div>
+                  <div class="small text-muted">${m.matched_name || 'No match found'}</div>
+                `;
+
+                const badge = document.createElement('span');
+                let badgeClass = '';
+                let badgeText = '';
+
+                if (m.match_type === 'exact') {
+                  badgeClass = 'bg-success';
+                  badgeText = 'Exact match';
+                } else if (m.match_type === 'partial') {
+                  badgeClass = 'bg-warning text-dark';
+                  badgeText = 'Partial match';
+                } else {
+                  badgeClass = 'bg-secondary';
+                  badgeText = 'Not matched';
+                }
+
+                badge.className = 'badge rounded-pill ' + badgeClass;
+                badge.textContent = badgeText;
+
+                item.appendChild(left);
+                item.appendChild(badge);
+                list.appendChild(item);
+              });
+
+              out.appendChild(list);
+            }
+          } catch (e) {
+            console.error('People finder error:', e);
+            out.innerHTML = `
+              <div class="alert alert-danger" role="alert">
+                Error while trying to find people.
+              </div>
+            `;
+          } finally {
+            btn.disabled = false;
+            txt.textContent = '(Try to) find people';
+            spin.classList.add('d-none');
+          }
         });
       });
     </script>
