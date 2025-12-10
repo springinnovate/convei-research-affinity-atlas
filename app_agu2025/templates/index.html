@@ -425,6 +425,43 @@ gillian galford
       }
 
       try {
+        const { job_id } = await fetchJSON('/find_people', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ names })
+        });
+
+        await new Promise((resolve, reject) => {
+          peopleFindProgressTimer = setInterval(async () => {
+            try {
+              const { done, total, status, message } = await fetchJSON(
+                `/find_people_status?job_id=${encodeURIComponent(job_id)}`
+              );
+
+              if (total > 0) {
+                peopleBtnText.textContent =
+                  `Finding people... (${done} of ${total} processed)`;
+              } else {
+                peopleBtnText.textContent = 'Finding people...';
+              }
+
+              if (status === 'error') {
+                clearInterval(peopleFindProgressTimer);
+                peopleFindProgressTimer = null;
+                reject(new Error(message || 'Find people failed'));
+              }
+              if (status === 'done') {
+                clearInterval(peopleFindProgressTimer);
+                peopleFindProgressTimer = null;
+                resolve();
+              }
+            } catch (e) {
+              clearInterval(peopleFindProgressTimer);
+              peopleFindProgressTimer = null;
+              reject(e);
+            }
+          }, 1000);
+        });
         const matches = await fetchJSON(
           `/find_people_result?job_id=${encodeURIComponent(job_id)}`
         );
@@ -572,6 +609,7 @@ gillian galford
             peopleOut.appendChild(card);
           });
         }
+
       } catch (e) {
         console.error('People finder error:', e);
         peopleOut.innerHTML = `
