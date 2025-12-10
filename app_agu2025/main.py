@@ -408,7 +408,7 @@ def _process_one_person(
         urls_q = (
             db.query(Page.url)
             .join(RawEntity, RawEntity.page_id == Page.id)
-            .filter(RawEntity.combined_entity_id == best.id)
+            .filter(RawEntity.combined_entity_id == c.id)
             .distinct()
             .all()
         )
