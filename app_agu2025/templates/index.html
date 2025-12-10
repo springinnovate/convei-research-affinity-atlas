@@ -668,6 +668,9 @@ gillian galford
                 innerAccordion.id = `PeopleFinderInnerAccordion-${groupIdx}`;
 
                 group.sort((a, b) => b.score - a.score).forEach((m, idx) => {
+                  if (m.score < 0) { // this guards the threshold
+                    return
+                  }
                   const item = document.createElement('div');
                   item.className = 'accordion-item';
 
@@ -690,8 +693,12 @@ gillian galford
                   labelWrap.className = 'me-2';
 
                   const matchNameDiv = document.createElement('div');
-                  matchNameDiv.innerHTML = `<strong>${escapeHtml(m.matched_name || 'No matched name')}</strong>`;
-
+                  matchNameDiv.innerHTML = `
+                      <strong>${escapeHtml(m.matched_name || 'No matched name')}</strong>
+                      <span style="margin-left: 0.5rem; color: #666; font-size: 0.9em;">
+                        ${m.score}
+                      </span>
+                    `;
                   const matchBaseDiv = document.createElement('div');
                   matchBaseDiv.className = 'small text-muted';
                   matchBaseDiv.textContent = `Query: ${baseName}`;
