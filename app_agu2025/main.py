@@ -82,6 +82,7 @@ class FindPeopleMatch(BaseModel):
     base_name: str
     matched_name: Optional[str]
     match_type: str
+    url_list: List[str]
 
 
 def get_db():
@@ -274,6 +275,13 @@ async def search_result(job_id: str):
     return SearchResponse(**job["result"])
 
 
+class FindPeopleMatch(BaseModel):
+    base_name: str
+    matched_name: Optional[str]
+    match_type: str
+    url_list: List[str]
+
+
 @app.post("/find_people", response_model=List[FindPeopleMatch])
 async def find_people(req: FindPeopleRequest, db: Session = Depends(get_db)):
     results: List[FindPeopleMatch] = []
@@ -307,11 +315,21 @@ async def find_people(req: FindPeopleRequest, db: Session = Depends(get_db)):
             .first()
         )
         if exact:
+            urls_q = (
+                db.query(Page.url)
+                .join(RawEntity, RawEntity.page_id == Page.id)
+                .filter(RawEntity.combined_entity_id == exact.id)
+                .distinct()
+                .all()
+            )
+            url_list = [u[0] for u in urls_q]
+
             results.append(
                 FindPeopleMatch(
                     base_name=base,
                     matched_name=exact.name,
                     match_type="exact",
+                    url_list=url_list,
                 )
             )
             continue
@@ -359,11 +377,21 @@ async def find_people(req: FindPeopleRequest, db: Session = Depends(get_db)):
                 best = c
 
         if best is not None and best_score > 0:
+            urls_q = (
+                db.query(Page.url)
+                .join(RawEntity, RawEntity.page_id == Page.id)
+                .filter(RawEntity.combined_entity_id == best.id)
+                .distinct()
+                .all()
+            )
+            url_list = [u[0] for u in urls_q]
+
             results.append(
                 FindPeopleMatch(
                     base_name=base,
                     matched_name=best.name,
                     match_type="partial",
+                    url_list=url_list,
                 )
             )
         else:
@@ -372,6 +400,7 @@ async def find_people(req: FindPeopleRequest, db: Session = Depends(get_db)):
                     base_name=base,
                     matched_name=None,
                     match_type="not matched",
+                    url_list=[],
                 )
             )
 
