@@ -646,7 +646,8 @@ gillian galford
 
                 const countDiv = document.createElement('div');
                 countDiv.className = 'small text-muted';
-                countDiv.textContent = `${group.length} match${group.length === 1 ? '' : 'es'}`;
+                const count = group.filter(m => m.score >= 80).length;
+                countDiv.textContent = `${count} match${count === 1 ? '' : 'es'}`;
 
                 outerLabelWrap.appendChild(baseDiv);
                 outerLabelWrap.appendChild(countDiv);
