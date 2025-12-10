@@ -57,6 +57,7 @@ templates.env.auto_reload = True
 
 class SearchRequest(BaseModel):
     query: str
+    types: list[str]
 
 
 class SearchResponse(BaseModel):
