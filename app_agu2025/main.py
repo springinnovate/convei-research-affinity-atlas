@@ -306,7 +306,9 @@ def _norm_name(s: str) -> str:
     )
 
 
-def _process_one_person(base: str, db: Session) -> Optional[FindPeopleMatch]:
+def _process_one_person(
+    base: str, db: Session
+) -> Optional[List[FindPeopleMatch]]:
     base_norm = _norm_name(base)
     base_parts = base_norm.split()
     if not base_parts:
@@ -333,12 +335,14 @@ def _process_one_person(base: str, db: Session) -> Optional[FindPeopleMatch]:
         )
         url_list = [u[0] for u in urls_q]
 
-        return FindPeopleMatch(
-            base_name=base,
-            matched_name=exact.name,
-            match_type="exact",
-            url_list=url_list,
-        )
+        return [
+            FindPeopleMatch(
+                base_name=base,
+                matched_name=exact.name,
+                match_type="exact",
+                url_list=url_list,
+            )
+        ]
 
     def norm_last(s: str) -> str:
         s = (s or "").strip().lower()
@@ -369,8 +373,7 @@ def _process_one_person(base: str, db: Session) -> Optional[FindPeopleMatch]:
         .all()
     )
 
-    best = None
-    best_score = -1
+    matches = []
 
     for c in candidates:
         cand_norm = _norm_name(c.name)
@@ -398,11 +401,10 @@ def _process_one_person(base: str, db: Session) -> Optional[FindPeopleMatch]:
         elif cand_first and base_first and cand_first[0] == base_first[0]:
             score += 1
 
-        if score > best_score:
-            best_score = score
-            best = c
+        if score == 0:
+            # nothing matched
+            continue
 
-    if best is not None and best_score > 0:
         urls_q = (
             db.query(Page.url)
             .join(RawEntity, RawEntity.page_id == Page.id)
@@ -412,19 +414,25 @@ def _process_one_person(base: str, db: Session) -> Optional[FindPeopleMatch]:
         )
         url_list = [u[0] for u in urls_q]
 
-        return FindPeopleMatch(
-            base_name=base,
-            matched_name=best.name,
-            match_type="partial",
-            url_list=url_list,
+        matches.append(
+            FindPeopleMatch(
+                base_name=base,
+                matched_name=c.name,
+                match_type="partial",
+                url_list=url_list,
+            )
         )
 
-    return FindPeopleMatch(
-        base_name=base,
-        matched_name=None,
-        match_type="not matched",
-        url_list=[],
-    )
+        return matches
+
+    return [
+        FindPeopleMatch(
+            base_name=base,
+            matched_name=None,
+            match_type="not matched",
+            url_list=[],
+        )
+    ]
 
 
 def run_find_people_job(job_id: str):
@@ -438,15 +446,17 @@ def run_find_people_job(job_id: str):
         job["done"] = 0
         job["total"] = len(names)
 
-        results: List[FindPeopleMatch] = []
+        results: List[List[FindPeopleMatch]] = []
 
         for base in tqdm(names, desc=f"find_people {job_id}"):
-            match = _process_one_person(base, db)
-            if match is not None:
-                results.append(match)
+            match_list = _process_one_person(base, db)
+            if match_list is not None:
+                results.append(match_list)
             job["done"] += 1
 
-        job["result"] = [m.dict() for m in results]
+        job["result"] = [
+            [m.dict() for m in match_list] for match_list in results
+        ]
         job["status"] = "done"
         job["message"] = "Job completed"
         logging.info(
@@ -517,7 +527,7 @@ async def find_people_status(job_id: str):
     )
 
 
-@app.get("/find_people_result", response_model=List[FindPeopleMatch])
+@app.get("/find_people_result", response_model=list[list[FindPeopleMatch]])
 async def find_people_result(job_id: str):
     job = JOBS.get(job_id)
     if not job:
@@ -533,7 +543,10 @@ async def find_people_result(job_id: str):
         )
         raise HTTPException(status_code=202, detail="Job not finished")
     logging.info("Returning find_people result for job %s", job_id)
-    return [FindPeopleMatch(**m) for m in job["result"]]
+    return [
+        [FindPeopleMatch(**m) for m in match_list]
+        for match_list in job["result"]
+    ]
 
 
 if __name__ == "__main__":
