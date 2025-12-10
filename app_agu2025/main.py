@@ -42,7 +42,7 @@ ENTITY_IDS: List[int] = []
 
 INDEX_PATH = BASE_DIR / "data" / "entity_index.faiss"
 
-executor = ThreadPoolExecutor(max_workers=4)
+executor = ThreadPoolExecutor(max_workers=64)
 JOBS: Dict[str, Dict[str, Any]] = {}
 
 app = FastAPI()
