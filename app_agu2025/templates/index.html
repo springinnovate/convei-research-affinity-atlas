@@ -475,139 +475,180 @@ gillian galford
             </div>
           `;
         } else {
-          matches.forEach((group, groupIdx) => {
-            if (!Array.isArray(group) || group.length === 0) return;
+            const matches = await fetchJSON(
+              `/find_people_result?job_id=${encodeURIComponent(job_id)}`
+            );
 
-            const baseName = group[0].base_name || '';
+            peopleOut.innerHTML = '';
 
-            const card = document.createElement('div');
-            card.className = 'card mb-3';
+            if (!Array.isArray(matches) || matches.length === 0) {
+              peopleOut.innerHTML = `
+                <div class="alert alert-warning" role="alert">
+                  No matches returned.
+                </div>
+              `;
+            } else {
+              const outerAccordion = document.createElement('div');
+              outerAccordion.className = 'accordion';
+              outerAccordion.id = 'PeopleFinderOuterAccordion';
+              peopleOut.appendChild(outerAccordion);
 
-            const cardHeader = document.createElement('div');
-            cardHeader.className = 'card-header d-flex justify-content-between align-items-center';
+              matches.forEach((group, groupIdx) => {
+                if (!Array.isArray(group) || group.length === 0) return;
 
-            const headerLeft = document.createElement('div');
-            const baseDiv = document.createElement('div');
-            baseDiv.innerHTML = `<strong>${escapeHtml(baseName)}</strong>`;
+                const baseName = group[0].base_name || '';
 
-            const countDiv = document.createElement('div');
-            countDiv.className = 'small text-muted';
-            countDiv.textContent = `${group.length} match${group.length === 1 ? '' : 'es'}`;
+                const outerItem = document.createElement('div');
+                outerItem.className = 'accordion-item';
 
-            headerLeft.appendChild(baseDiv);
-            headerLeft.appendChild(countDiv);
+                const outerHeadingId = `pf-outer-heading-${groupIdx}`;
+                const outerCollapseId = `pf-outer-collapse-${groupIdx}`;
 
-            cardHeader.appendChild(headerLeft);
-            card.appendChild(cardHeader);
+                const outerHeader = document.createElement('h2');
+                outerHeader.className = 'accordion-header';
+                outerHeader.id = outerHeadingId;
 
-            const cardBody = document.createElement('div');
-            cardBody.className = 'card-body';
+                const outerBtn = document.createElement('button');
+                outerBtn.className = 'accordion-button collapsed d-flex justify-content-between align-items-center';
+                outerBtn.type = 'button';
+                outerBtn.setAttribute('data-bs-toggle', 'collapse');
+                outerBtn.setAttribute('data-bs-target', `#${outerCollapseId}`);
+                outerBtn.setAttribute('aria-expanded', 'false');
+                outerBtn.setAttribute('aria-controls', outerCollapseId);
 
-            const accordion = document.createElement('div');
-            accordion.className = 'accordion';
-            accordion.id = `PeopleFinderAccordion-${groupIdx}`;
+                const outerLabelWrap = document.createElement('div');
+                outerLabelWrap.className = 'me-2';
 
-            group.forEach((m, idx) => {
-              const item = document.createElement('div');
-              item.className = 'accordion-item';
+                const baseDiv = document.createElement('div');
+                baseDiv.innerHTML = `<strong>${escapeHtml(baseName)}</strong>`;
 
-              const headingId = `pf-heading-${groupIdx}-${idx}`;
-              const collapseId = `pf-collapse-${groupIdx}-${idx}`;
+                const countDiv = document.createElement('div');
+                countDiv.className = 'small text-muted';
+                countDiv.textContent = `${group.length} match${group.length === 1 ? '' : 'es'}`;
 
-              const header = document.createElement('h2');
-              header.className = 'accordion-header';
-              header.id = headingId;
+                outerLabelWrap.appendChild(baseDiv);
+                outerLabelWrap.appendChild(countDiv);
 
-              const btn = document.createElement('button');
-              btn.className = 'accordion-button collapsed d-flex justify-content-between align-items-center';
-              btn.type = 'button';
-              btn.setAttribute('data-bs-toggle', 'collapse');
-              btn.setAttribute('data-bs-target', `#${collapseId}`);
-              btn.setAttribute('aria-expanded', 'false');
-              btn.setAttribute('aria-controls', collapseId);
+                outerBtn.appendChild(outerLabelWrap);
+                outerHeader.appendChild(outerBtn);
 
-              const labelWrap = document.createElement('div');
-              labelWrap.className = 'me-2';
+                const outerCollapse = document.createElement('div');
+                outerCollapse.id = outerCollapseId;
+                outerCollapse.className = 'accordion-collapse collapse';
+                outerCollapse.setAttribute('aria-labelledby', outerHeadingId);
+                outerCollapse.setAttribute('data-bs-parent', `#${outerAccordion.id}`);
 
-              const matchNameDiv = document.createElement('div');
-              matchNameDiv.innerHTML = `<strong>${escapeHtml(m.matched_name || 'No matched name')}</strong>`;
+                const outerBody = document.createElement('div');
+                outerBody.className = 'accordion-body';
 
-              const matchBaseDiv = document.createElement('div');
-              matchBaseDiv.className = 'small text-muted';
-              matchBaseDiv.textContent = `Query: ${baseName}`;
+                const innerAccordion = document.createElement('div');
+                innerAccordion.className = 'accordion';
+                innerAccordion.id = `PeopleFinderInnerAccordion-${groupIdx}`;
 
-              labelWrap.appendChild(matchNameDiv);
-              labelWrap.appendChild(matchBaseDiv);
+                group.forEach((m, idx) => {
+                  const item = document.createElement('div');
+                  item.className = 'accordion-item';
 
-              const badge = document.createElement('span');
-              let badgeClass = '';
-              let badgeText = '';
+                  const headingId = `pf-inner-heading-${groupIdx}-${idx}`;
+                  const collapseId = `pf-inner-collapse-${groupIdx}-${idx}`;
 
-              if (m.match_type === 'exact') {
-                badgeClass = 'bg-success';
-                badgeText = 'Exact match';
-              } else if (m.match_type === 'partial') {
-                badgeClass = 'bg-warning text-dark';
-                badgeText = 'Partial match';
-              } else {
-                badgeClass = 'bg-secondary';
-                badgeText = 'Not matched';
-              }
+                  const header = document.createElement('h2');
+                  header.className = 'accordion-header';
+                  header.id = headingId;
 
-              badge.className = 'badge rounded-pill ' + badgeClass;
-              badge.textContent = badgeText;
+                  const btn = document.createElement('button');
+                  btn.className = 'accordion-button collapsed d-flex justify-content-between align-items-center';
+                  btn.type = 'button';
+                  btn.setAttribute('data-bs-toggle', 'collapse');
+                  btn.setAttribute('data-bs-target', `#${collapseId}`);
+                  btn.setAttribute('aria-expanded', 'false');
+                  btn.setAttribute('aria-controls', collapseId);
 
-              btn.appendChild(labelWrap);
-              btn.appendChild(badge);
+                  const labelWrap = document.createElement('div');
+                  labelWrap.className = 'me-2';
 
-              header.appendChild(btn);
+                  const matchNameDiv = document.createElement('div');
+                  matchNameDiv.innerHTML = `<strong>${escapeHtml(m.matched_name || 'No matched name')}</strong>`;
 
-              const collapse = document.createElement('div');
-              collapse.id = collapseId;
-              collapse.className = 'accordion-collapse collapse';
-              collapse.setAttribute('aria-labelledby', headingId);
-              collapse.setAttribute('data-bs-parent', `#${accordion.id}`);
+                  const matchBaseDiv = document.createElement('div');
+                  matchBaseDiv.className = 'small text-muted';
+                  matchBaseDiv.textContent = `Query: ${baseName}`;
 
-              const body = document.createElement('div');
-              body.className = 'accordion-body';
+                  labelWrap.appendChild(matchNameDiv);
+                  labelWrap.appendChild(matchBaseDiv);
 
-              if (Array.isArray(m.url_list) && m.url_list.length) {
-                const title = document.createElement('div');
-                title.className = 'fw-semibold mb-2';
-                title.textContent = 'Found in these pages:';
-                body.appendChild(title);
+                  const badge = document.createElement('span');
+                  let badgeClass = '';
+                  let badgeText = '';
 
-                const ul = document.createElement('ul');
-                ul.className = 'mb-0';
-                m.url_list.forEach(u => {
-                  if (!u) return;
-                  const li = document.createElement('li');
-                  const a = document.createElement('a');
-                  a.href = u;
-                  a.target = '_blank';
-                  a.rel = 'noopener noreferrer';
-                  a.textContent = u;
-                  li.appendChild(a);
-                  ul.appendChild(li);
+                  if (m.match_type === 'exact') {
+                    badgeClass = 'bg-success';
+                    badgeText = 'Exact match';
+                  } else if (m.match_type === 'partial') {
+                    badgeClass = 'bg-warning text-dark';
+                    badgeText = 'Partial match';
+                  } else {
+                    badgeClass = 'bg-secondary';
+                    badgeText = 'Not matched';
+                  }
+
+                  badge.className = 'badge rounded-pill ' + badgeClass;
+                  badge.textContent = badgeText;
+
+                  btn.appendChild(labelWrap);
+                  btn.appendChild(badge);
+
+                  header.appendChild(btn);
+
+                  const collapse = document.createElement('div');
+                  collapse.id = collapseId;
+                  collapse.className = 'accordion-collapse collapse';
+                  collapse.setAttribute('aria-labelledby', headingId);
+                  collapse.setAttribute('data-bs-parent', `#${innerAccordion.id}`);
+
+                  const body = document.createElement('div');
+                  body.className = 'accordion-body';
+
+                  if (Array.isArray(m.url_list) && m.url_list.length) {
+                    const title = document.createElement('div');
+                    title.className = 'fw-semibold mb-2';
+                    title.textContent = 'Found in these pages:';
+                    body.appendChild(title);
+
+                    const ul = document.createElement('ul');
+                    ul.className = 'mb-0';
+                    m.url_list.forEach(u => {
+                      if (!u) return;
+                      const li = document.createElement('li');
+                      const a = document.createElement('a');
+                      a.href = u;
+                      a.target = '_blank';
+                      a.rel = 'noopener noreferrer';
+                      a.textContent = u;
+                      li.appendChild(a);
+                      ul.appendChild(li);
+                    });
+                    body.appendChild(ul);
+                  } else {
+                    const none = document.createElement('div');
+                    none.className = 'text-muted';
+                    none.textContent = 'No pages found for this match.';
+                    body.appendChild(none);
+                  }
+
+                  collapse.appendChild(body);
+                  item.appendChild(header);
+                  item.appendChild(collapse);
+                  innerAccordion.appendChild(item);
                 });
-                body.appendChild(ul);
-              } else {
-                const none = document.createElement('div');
-                none.className = 'text-muted';
-                none.textContent = 'No pages found for this match.';
-                body.appendChild(none);
-              }
 
-              collapse.appendChild(body);
-              item.appendChild(header);
-              item.appendChild(collapse);
-              accordion.appendChild(item);
-            });
-
-            cardBody.appendChild(accordion);
-            card.appendChild(cardBody);
-            peopleOut.appendChild(card);
-          });
+                outerBody.appendChild(innerAccordion);
+                outerCollapse.appendChild(outerBody);
+                outerItem.appendChild(outerHeader);
+                outerItem.appendChild(outerCollapse);
+                outerAccordion.appendChild(outerItem);
+              });
+            }
         }
 
       } catch (e) {
