@@ -15,8 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 import uvicorn
 from dotenv import load_dotenv
 
-
-from crawler.models import RawEntity, Page, EntityBio
+from crawler.models import RawEntity, Page, EntityBio, CombinedEntity
 from crawler.utils import (
     parse_crawler_config,
     load_entity_ids,
@@ -73,6 +72,16 @@ class SearchProgressResponse(BaseModel):
     total: int
     status: str
     message: Optional[str] = None
+
+
+class FindPeopleRequest(BaseModel):
+    names: List[str]
+
+
+class FindPeopleMatch(BaseModel):
+    base_name: str
+    matched_name: Optional[str]
+    match_type: str
 
 
 def get_db():
@@ -263,6 +272,63 @@ async def search_result(job_id: str):
         raise HTTPException(status_code=202, detail="Job not finished")
     logging.info("Returning result for job %s", job_id)
     return SearchResponse(**job["result"])
+
+
+@app.post("/find_people", response_model=List[FindPeopleMatch])
+async def find_people(req: FindPeopleRequest, db: Session = Depends(get_db)):
+    results: List[FindPeopleMatch] = []
+
+    for raw_name in req.names:
+        base = (raw_name or "").strip()
+        if not base:
+            continue
+
+        exact = (
+            db.query(CombinedEntity)
+            .filter(
+                CombinedEntity.type == "Person",
+                CombinedEntity.name.ilike(base),
+            )
+            .first()
+        )
+
+        if exact:
+            results.append(
+                FindPeopleMatch(
+                    base_name=base,
+                    matched_name=exact.name,
+                    match_type="exact",
+                )
+            )
+            continue
+
+        partial = (
+            db.query(CombinedEntity)
+            .filter(
+                CombinedEntity.type == "Person",
+                CombinedEntity.name.ilike(f"%{base}%"),
+            )
+            .first()
+        )
+
+        if partial:
+            results.append(
+                FindPeopleMatch(
+                    base_name=base,
+                    matched_name=partial.name,
+                    match_type="partial",
+                )
+            )
+        else:
+            results.append(
+                FindPeopleMatch(
+                    base_name=base,
+                    matched_name=None,
+                    match_type="not matched",
+                )
+            )
+
+    return results
 
 
 if __name__ == "__main__":
