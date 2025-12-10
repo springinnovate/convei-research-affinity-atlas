@@ -156,8 +156,18 @@ async def search(req: SearchRequest, db: Session = Depends(get_db)):
         logging.info("Search request with empty query")
         raise HTTPException(status_code=400, detail="Empty query")
 
+    types = req.types or []
+    if not types:
+        logging.info("Search request with empty types")
+        raise HTTPException(status_code=400, detail="No entity types selected")
+
     job_id = str(uuid4())
-    logging.info("Created search job %s for query: %s", job_id, user_query)
+    logging.info(
+        "Created search job %s for query: %s; types: %s",
+        job_id,
+        user_query,
+        types,
+    )
 
     JOBS[job_id] = {
         "done": 0,
@@ -167,12 +177,19 @@ async def search(req: SearchRequest, db: Session = Depends(get_db)):
         "result": None,
         "query": user_query,
         "job_type": "search",
+        "types": types,
     }
 
     def run_job(job_id: str):
         job = JOBS[job_id]
         user_query = job["query"]
-        logging.info("Starting job %s for query: %s", job_id, user_query)
+        types = job["types"]
+        logging.info(
+            "Starting job %s for query: %s; types: %s",
+            job_id,
+            user_query,
+            types,
+        )
         try:
             job["status"] = "building_context"
             job["message"] = "Building entity context"
@@ -183,6 +200,7 @@ async def search(req: SearchRequest, db: Session = Depends(get_db)):
                 EMBEDDING_INDEX,
                 ENTITY_IDS,
                 CONFIG,
+                types,
             )
             job["total"] = max(len(result_by_name), 1)
             job["done"] = 1
