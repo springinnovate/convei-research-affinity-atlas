@@ -449,7 +449,7 @@ def run_find_people_job(job_id: str):
 async def find_people(req: FindPeopleRequest):
     names: List[str] = []
     for raw_name in req.names:
-        base = (raw_name or "").strip()
+        base = " ".join((raw_name or "").split())
         if base:
             names.append(base)
 
