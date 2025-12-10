@@ -668,7 +668,7 @@ gillian galford
                 innerAccordion.id = `PeopleFinderInnerAccordion-${groupIdx}`;
 
                 group.sort((a, b) => b.score - a.score).forEach((m, idx) => {
-                  if (m.score < 0) { // this guards the threshold
+                  if (m.score < 80) { // this guards the threshold
                     return
                   }
                   const item = document.createElement('div');
@@ -696,7 +696,7 @@ gillian galford
                   matchNameDiv.innerHTML = `
                       <strong>${escapeHtml(m.matched_name || 'No matched name')}</strong>
                       <span style="margin-left: 0.5rem; color: #666; font-size: 0.9em;">
-                        ${m.score}
+                        ${m.score.toFixed(1)}
                       </span>
                     `;
                   const matchBaseDiv = document.createElement('div');
