@@ -1,19 +1,20 @@
-import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
+import asyncio
 import logging
+import os
 
-import faiss
+from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+import faiss
 import uvicorn
-from dotenv import load_dotenv
 
 from crawler.models import RawEntity, Page, EntityBio, CombinedEntity
 from crawler.utils import (
@@ -283,9 +284,7 @@ class FindPeopleMatch(BaseModel):
 
 
 @app.post("/find_people", response_model=List[FindPeopleMatch])
-async def find_people(req: FindPeopleRequest, db: Session = Depends(get_db)):
-    results: List[FindPeopleMatch] = []
-
+async def find_people(req: FindPeopleRequest):
     def norm_name(s: str) -> str:
         return " ".join(
             "".join(
@@ -293,118 +292,127 @@ async def find_people(req: FindPeopleRequest, db: Session = Depends(get_db)):
             ).split()
         )
 
-    for raw_name in req.names:
-        base = (raw_name or "").strip()
-        if not base:
-            continue
+    def process_one(base: str) -> Optional[FindPeopleMatch]:
+        db = SessionLocal()
+        try:
+            base_norm = norm_name(base)
+            base_parts = base_norm.split()
+            if not base_parts:
+                return None
 
-        base_norm = norm_name(base)
-        base_parts = base_norm.split()
-        if not base_parts:
-            continue
+            base_first = base_parts[0]
+            base_last = base_parts[-1]
 
-        base_first = base_parts[0]
-        base_last = base_parts[-1]
-
-        exact = (
-            db.query(CombinedEntity)
-            .filter(
-                CombinedEntity.type == "Person",
-                CombinedEntity.name.ilike(base),
+            exact = (
+                db.query(CombinedEntity)
+                .filter(
+                    CombinedEntity.type == "Person",
+                    CombinedEntity.name.ilike(base),
+                )
+                .first()
             )
-            .first()
-        )
-        if exact:
-            urls_q = (
-                db.query(Page.url)
-                .join(RawEntity, RawEntity.page_id == Page.id)
-                .filter(RawEntity.combined_entity_id == exact.id)
-                .distinct()
-                .all()
-            )
-            url_list = [u[0] for u in urls_q]
+            if exact:
+                urls_q = (
+                    db.query(Page.url)
+                    .join(RawEntity, RawEntity.page_id == Page.id)
+                    .filter(RawEntity.combined_entity_id == exact.id)
+                    .distinct()
+                    .all()
+                )
+                url_list = [u[0] for u in urls_q]
 
-            results.append(
-                FindPeopleMatch(
+                return FindPeopleMatch(
                     base_name=base,
                     matched_name=exact.name,
                     match_type="exact",
                     url_list=url_list,
                 )
-            )
-            continue
 
-        candidates = (
-            db.query(CombinedEntity)
-            .filter(
-                CombinedEntity.type == "Person",
-                CombinedEntity.name.ilike(f"%{base_last}%"),
-            )
-            .all()
-        )
-
-        best = None
-        best_score = -1
-
-        for c in candidates:
-            cand_norm = norm_name(c.name)
-            cand_parts = cand_norm.split()
-            if not cand_parts:
-                continue
-
-            cand_first = cand_parts[0]
-            cand_last = cand_parts[-1]
-
-            bl = base_last.replace("-", "")
-            cl = cand_last.replace("-", "")
-
-            if bl != cl and not (bl in cl or cl in bl):
-                continue
-
-            score = 0
-            if bl == cl:
-                score += 2
-            elif bl in cl or cl in bl:
-                score += 1
-
-            if cand_first == base_first:
-                score += 2
-            elif cand_first and base_first and cand_first[0] == base_first[0]:
-                score += 1
-
-            if score > best_score:
-                best_score = score
-                best = c
-
-        if best is not None and best_score > 0:
-            urls_q = (
-                db.query(Page.url)
-                .join(RawEntity, RawEntity.page_id == Page.id)
-                .filter(RawEntity.combined_entity_id == best.id)
-                .distinct()
+            candidates = (
+                db.query(CombinedEntity)
+                .filter(
+                    CombinedEntity.type == "Person",
+                    CombinedEntity.name.ilike(f"%{base_last}%"),
+                )
                 .all()
             )
-            url_list = [u[0] for u in urls_q]
 
-            results.append(
-                FindPeopleMatch(
+            best = None
+            best_score = -1
+
+            for c in candidates:
+                cand_norm = norm_name(c.name)
+                cand_parts = cand_norm.split()
+                if not cand_parts:
+                    continue
+
+                cand_first = cand_parts[0]
+                cand_last = cand_parts[-1]
+
+                bl = base_last.replace("-", "")
+                cl = cand_last.replace("-", "")
+
+                if bl != cl and not (bl in cl or cl in bl):
+                    continue
+
+                score = 0
+                if bl == cl:
+                    score += 2
+                elif bl in cl or cl in bl:
+                    score += 1
+
+                if cand_first == base_first:
+                    score += 2
+                elif (
+                    cand_first and base_first and cand_first[0] == base_first[0]
+                ):
+                    score += 1
+
+                if score > best_score:
+                    best_score = score
+                    best = c
+
+            if best is not None and best_score > 0:
+                urls_q = (
+                    db.query(Page.url)
+                    .join(RawEntity, RawEntity.page_id == Page.id)
+                    .filter(RawEntity.combined_entity_id == best.id)
+                    .distinct()
+                    .all()
+                )
+                url_list = [u[0] for u in urls_q]
+
+                return FindPeopleMatch(
                     base_name=base,
                     matched_name=best.name,
                     match_type="partial",
                     url_list=url_list,
                 )
-            )
-        else:
-            results.append(
-                FindPeopleMatch(
-                    base_name=base,
-                    matched_name=None,
-                    match_type="not matched",
-                    url_list=[],
-                )
-            )
 
-    return results
+            return FindPeopleMatch(
+                base_name=base,
+                matched_name=None,
+                match_type="not matched",
+                url_list=[],
+            )
+        finally:
+            db.close()
+
+    names = []
+    for raw_name in req.names:
+        base = (raw_name or "").strip()
+        if base:
+            names.append(base)
+
+    if not names:
+        return []
+
+    loop = asyncio.get_running_loop()
+    tasks = [
+        loop.run_in_executor(executor, process_one, base) for base in names
+    ]
+    matches = await asyncio.gather(*tasks)
+    return [m for m in matches if m is not None]
 
 
 if __name__ == "__main__":
