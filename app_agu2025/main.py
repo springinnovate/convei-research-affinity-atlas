@@ -46,7 +46,9 @@ executor = ThreadPoolExecutor(max_workers=4)
 JOBS: Dict[str, Dict[str, Any]] = {}
 
 app = FastAPI()
-app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+app.mount(
+    "/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static"
+)
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.auto_reload = True
 
@@ -89,7 +91,9 @@ async def startup_event():
     config_path = os.environ.get("CONFIG_PATH")
     db_path = os.environ.get("DB_PATH")
     if not config_path or not db_path:
-        raise RuntimeError("CONFIG_PATH and DB_PATH environment variables must be set")
+        raise RuntimeError(
+            "CONFIG_PATH and DB_PATH environment variables must be set"
+        )
 
     CONFIG = parse_crawler_config(Path(config_path))
 
@@ -129,51 +133,6 @@ async def list_entities(db: Session = Depends(get_db)):
     entities = [{"name": name, "type": etype} for name, etype in sorted_pairs]
 
     return {"entities": entities}
-
-
-class EntityBioRequest(BaseModel):
-    type: Optional[str] = None
-    name: str
-
-
-class EntityBioResponse(BaseModel):
-    type: str
-    name: str
-    bio: str
-    url_list: List[str]
-
-
-# @app.post("/entity_bio", response_model=EntityBioResponse)
-# async def entity_bio(req: EntityBioRequest, db: Session = Depends(get_db)):
-#     logging.info(f"querying for {req.name}")
-#     q = db.query(EntityBio).filter(EntityBio.name == req.name)
-
-#     if req.type is not None:
-#         q = q.filter(EntityBio.type == req.type)
-
-#     bio_row = q.one_or_none()
-#     logging.info(f"got this result {bio_row} for {req.name}")
-#     if not bio_row:
-#         raise HTTPException(status_code=404, detail="Bio not found")
-
-#     urls_q = (
-#         db.query(Page.url)
-#         .join(Entity, Entity.page_id == Page.id)
-#         .filter(Entity.name == req.name)
-#     )
-
-#     if req.type is not None:
-#         urls_q = urls_q.filter(Entity.type == req.type)
-
-#     urls = urls_q.distinct().all()
-#     url_list = [u[0] for u in urls]
-
-#     return EntityBioResponse(
-#         type=bio_row.type,
-#         name=bio_row.name,
-#         bio=bio_row.bio,
-#         url_list=url_list,
-#     )
 
 
 @app.post("/search", response_model=SearchJobResponse)
@@ -220,7 +179,9 @@ async def search(req: SearchRequest, db: Session = Depends(get_db)):
 
             job["status"] = "analyzing"
             job["message"] = "Analyzing entities with LLM"
-            logging.info("Job %s: analyzing entities with model %s", job_id, MODEL_NAME)
+            logging.info(
+                "Job %s: analyzing entities with model %s", job_id, MODEL_NAME
+            )
             analyses = analyze_results_by_name(
                 result_by_name,
                 user_query,
