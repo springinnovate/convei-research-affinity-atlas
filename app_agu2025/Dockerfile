@@ -22,7 +22,8 @@ RUN pip install --no-cache-dir \
     fastapi \
     uvicorn[standard] \
     jinja2 \
-    tiktoken
+    tiktoken \
+    rapidfuzz
 
 
 # Expose FastAPI port

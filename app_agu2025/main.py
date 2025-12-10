@@ -2,7 +2,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
-import asyncio
 import logging
 import os
 import re
@@ -12,6 +11,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+from rapidfuzz import fuzz
 from sqlalchemy import create_engine, or_, and_
 from sqlalchemy.orm import Session, sessionmaker
 from tqdm.auto import tqdm
@@ -83,6 +83,7 @@ class FindPeopleRequest(BaseModel):
 
 
 class FindPeopleMatch(BaseModel):
+    score: float
     base_name: str
     matched_name: Optional[str]
     match_type: str
@@ -306,6 +307,49 @@ def _norm_name(s: str) -> str:
     )
 
 
+def _normalize_name(s):
+    _name_stopwords = {
+        "mr",
+        "mrs",
+        "ms",
+        "miss",
+        "mx",
+        "dr",
+        "prof",
+        "phd",
+        "ph",
+        "dphil",
+        "md",
+        "dvm",
+        "esq",
+        "jr",
+        "sr",
+        "ii",
+        "iii",
+        "iv",
+        "cpa",
+        "she",
+        "her",
+        "him",
+        "he",
+        "they",
+        "them",
+    }
+
+    s = s.lower()
+    s = re.sub(r"[^a-z\s]", " ", s)
+    parts = sorted(p for p in s.split() if p not in _name_stopwords)
+    return " ".join(parts)
+
+
+def score_similar_names(base_name, test_name):
+    if base_name == test_name:
+        return 100
+    base_norm = _normalize_name(base_name)
+    test_norm = _normalize_name(test_name)
+    return fuzz.token_set_ratio(base_norm, test_norm)
+
+
 def _process_one_person(
     base: str, db: Session
 ) -> Optional[List[FindPeopleMatch]]:
@@ -313,9 +357,6 @@ def _process_one_person(
     base_parts = base_norm.split()
     if not base_parts:
         return None
-
-    base_first = base_parts[0]
-    base_last = base_parts[-1]
 
     exact = (
         db.query(CombinedEntity)
@@ -337,6 +378,7 @@ def _process_one_person(
 
         return [
             FindPeopleMatch(
+                score=1,
                 base_name=base,
                 matched_name=exact.name,
                 match_type="exact",
@@ -353,9 +395,6 @@ def _process_one_person(
         last = parts[-1]
         return last.replace("-", "")
 
-    base_norm = _norm_name(base)
-    base_parts = base_norm.split()
-    base_last = base_parts[-1] if base_parts else ""
     base_last_norm = norm_last(base)
 
     candidates = (
@@ -366,7 +405,7 @@ def _process_one_person(
                 CombinedEntity.last_name_norm == base_last_norm,
                 and_(
                     CombinedEntity.last_name_norm.is_(None),
-                    CombinedEntity.name.ilike(f"%{base_last}%"),
+                    CombinedEntity.name.ilike(f"%{base_last_norm}%"),
                 ),
             )
         )
@@ -376,30 +415,7 @@ def _process_one_person(
     matches = []
 
     for c in candidates:
-        cand_norm = _norm_name(c.name)
-        cand_parts = cand_norm.split()
-        if not cand_parts:
-            continue
-
-        cand_first = cand_parts[0]
-        cand_last = cand_parts[-1]
-
-        bl = base_last.replace("-", "")
-        cl = cand_last.replace("-", "")
-
-        if bl != cl and not (bl in cl or cl in bl):
-            continue
-
-        score = 0
-        if bl == cl:
-            score += 2
-        elif bl in cl or cl in bl:
-            score += 1
-
-        if cand_first == base_first:
-            score += 2
-        elif cand_first and base_first and cand_first[0] == base_first[0]:
-            score += 1
+        score = score_similar_names(base, c.name)
 
         if score == 0:
             # nothing matched
@@ -416,6 +432,7 @@ def _process_one_person(
 
         matches.append(
             FindPeopleMatch(
+                score=score,
                 base_name=base,
                 matched_name=c.name,
                 match_type="partial",
@@ -428,6 +445,7 @@ def _process_one_person(
 
     return [
         FindPeopleMatch(
+            score=0,
             base_name=base,
             matched_name=None,
             match_type="not matched",
