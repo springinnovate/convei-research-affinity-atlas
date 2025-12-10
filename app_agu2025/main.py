@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from tqdm.auto import tqdm
 import faiss
 import uvicorn
 
@@ -411,8 +412,14 @@ async def find_people(req: FindPeopleRequest):
     tasks = [
         loop.run_in_executor(executor, process_one, base) for base in names
     ]
-    matches = await asyncio.gather(*tasks)
-    return [m for m in matches if m is not None]
+
+    matches: List[FindPeopleMatch] = []
+    for fut in tqdm(asyncio.as_completed(tasks), total=len(tasks)):
+        m = await fut
+        if m is not None:
+            matches.append(m)
+
+    return matches
 
 
 if __name__ == "__main__":
