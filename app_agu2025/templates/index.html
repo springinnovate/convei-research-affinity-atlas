@@ -92,505 +92,501 @@ gillian galford
     </div>
 
     <script>
-      const getEl = id => document.getElementById(id);
-      const fetchJSON = (u,o) => fetch(u,o).then(r => r.json());
+  const getEl = id => document.getElementById(id);
+  const fetchJSON = (u,o) => fetch(u,o).then(r => r.json());
 
-      function createOrGetRow(id){
-        let row = getEl('crawl-row-'+id);
-        if(!row){
-          row = document.createElement('div');
-          row.id = 'crawl-row-'+id;
-          row.className = 'alert alert-info py-1 mb-2';
-          getEl('crawl-status-list').appendChild(row);
-        }
-        return row;
-      }
+  function createOrGetRow(id){
+    let row = getEl('crawl-row-'+id);
+    if(!row){
+      row = document.createElement('div');
+      row.id = 'crawl-row-'+id;
+      row.className = 'alert alert-info py-1 mb-2';
+      getEl('crawl-status-list').appendChild(row);
+    }
+    return row;
+  }
 
-      const updateRow = (row,msg,done=false)=>
-        (row.textContent = msg,
-         row.className = `alert ${done?'alert-success':'alert-info'} py-1 mb-2`);
+  const updateRow = (row,msg,done=false)=>
+    (row.textContent = msg,
+     row.className = `alert ${done?'alert-success':'alert-info'} py-1 mb-2`);
 
-      let matchProgressTimer = null;
-      let peopleFindProgressTimer = null;
+  let matchProgressTimer = null;
+  let peopleFindProgressTimer = null;
 
-      const typePerson = () => getEl('TypePerson');
-      const typeSession = () => getEl('TypeSession');
+  const typePerson = () => getEl('TypePerson');
+  const typeSession = () => getEl('TypeSession');
 
-      getEl('MatchPeopleBtn').addEventListener('click', async () => {
-        const btn  = getEl('MatchPeopleBtn');
-        const txt  = getEl('MatchPeopleBtnText');
-        const spin = getEl('MatchPeopleBtnSpinner');
-        const box  = getEl('UserInterestText');
-        const input = (box.value || '').trim();
+  getEl('MatchPeopleBtn').addEventListener('click', async () => {
+    const btn  = getEl('MatchPeopleBtn');
+    const txt  = getEl('MatchPeopleBtnText');
+    const spin = getEl('MatchPeopleBtnSpinner');
+    const box  = getEl('UserInterestText');
+    const input = (box.value || '').trim();
 
-        if (!input) return;
+    if (!input) return;
 
-        const types = [];
-        if (typePerson().checked) types.push('Person');
-        if (typeSession().checked) types.push('Session');
-        if (!types.length) return;
+    const types = [];
+    if (typePerson().checked) types.push('Person');
+    if (typeSession().checked) types.push('Session');
+    if (!types.length) return;
 
-        btn.disabled = true;
-        box.disabled = true;
-        txt.textContent = 'Starting...';
-        spin.classList.remove('d-none');
+    btn.disabled = true;
+    box.disabled = true;
+    txt.textContent = 'Starting...';
+    spin.classList.remove('d-none');
 
-        try {
-          const { job_id } = await fetchJSON('/search', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: input, types })
-          });
-
-          await new Promise((resolve, reject) => {
-            matchProgressTimer = setInterval(async () => {
-              try {
-                const { done, total, status, message } = await fetchJSON(
-                  `/search_progress?job_id=${encodeURIComponent(job_id)}`
-                );
-
-                if (total > 0) {
-                  txt.textContent =
-                    `Matching... (${done} of ${total} chunks done) -- Do not navigate away from the page`;
-                } else {
-                  txt.textContent = 'Matching...';
-                }
-
-                if (status === 'error') {
-                  clearInterval(matchProgressTimer);
-                  matchProgressTimer = null;
-                  reject(new Error(message || 'Search failed'));
-                }
-                if (status === 'done') {
-                  clearInterval(matchProgressTimer);
-                  matchProgressTimer = null;
-                  resolve();
-                }
-              } catch (e) {
-                clearInterval(matchProgressTimer);
-                matchProgressTimer = null;
-                reject(e);
-              }
-            }, 1000);
-          });
-
-          const result = await fetchJSON(
-            `/search_result?job_id=${encodeURIComponent(job_id)}`
-          );
-          renderMatches(result);
-        } catch (e) {
-          console.error('Matching error:', e);
-          renderMatches({ query: input, matches: [], notes: 'Error fetching matches.' });
-        } finally {
-          btn.disabled = false;
-          box.disabled = false;
-          txt.textContent = 'Find Matches';
-          spin.classList.add('d-none');
-        }
+    try {
+      const { job_id } = await fetchJSON('/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: input, types })
       });
 
-      function renderMatches(payload) {
-        const target = getEl('MatchResults');
-        target.innerHTML = '';
-
-        if (!payload || !Array.isArray(payload.matches) || payload.matches.length === 0) {
-          target.innerHTML = `
-            <div class="alert alert-warning" role="alert">
-              No matches found for this query.
-            </div>
-          `;
-          if (payload?.notes) {
-            const notes = document.createElement('div');
-            notes.className = 'text-muted small mt-1';
-            notes.textContent = payload.notes;
-            target.appendChild(notes);
-          }
-          return;
-        }
-
-        const hdr = document.createElement('div');
-        hdr.className = 'mb-3';
-        hdr.innerHTML = `
-          <div class="fw-semibold">Query</div>
-          <div class="text-muted">${escapeHtml(payload.query || '')}</div>
-        `;
-        target.appendChild(hdr);
-
-        const list = document.createElement('div');
-        list.className = 'd-flex flex-column gap-3';
-        target.appendChild(list);
-
-        payload.matches.forEach((m, idx) => {
-          if (!m.is_relevant) {
-            return;
-          }
-          const card = document.createElement('div');
-          card.className = 'card shadow-sm';
-
-          const body = document.createElement('div');
-          body.className = 'card-body';
-
-          const title = document.createElement('div');
-          title.className = 'd-flex align-items-start justify-content-between flex-wrap gap-2';
-
-          const nameEl = document.createElement('h5');
-          nameEl.className = 'card-title mb-0 fw-bold person-name';
-          nameEl.style.cursor = 'pointer';
-
-          const numSpan = document.createElement('span');
-          numSpan.className = 'text-muted me-2';
-          numSpan.textContent = `${idx + 1}.`;
-
-          const textSpan = document.createElement('span');
-          textSpan.textContent = m.name || 'Unknown';
-
-          nameEl.appendChild(numSpan);
-          nameEl.appendChild(textSpan);
-
-          title.appendChild(nameEl);
-
-          body.appendChild(title);
-
-          if (m.answer || m.reason) {
-            const desc = document.createElement('p');
-            desc.className = 'mt-2 mb-2';
-
-            if (m.answer) {
-              const answerSpan = document.createElement('span');
-              answerSpan.textContent = m.answer;
-              desc.appendChild(answerSpan);
-            }
-
-            if (m.reason) {
-              const reasonSpan = document.createElement('span');
-              reasonSpan.className = 'text-muted ms-2';
-              reasonSpan.textContent = m.reason;
-              desc.appendChild(reasonSpan);
-            }
-
-            body.appendChild(desc);
-          }
-
-          if (Array.isArray(m.supporting_phrases) && m.supporting_phrases.length) {
-            const sigWrap = document.createElement('div');
-            sigWrap.className = 'small text-muted';
-
-            const ul = document.createElement('ul');
-            ul.className = 'mb-0 ps-3';
-
-            m.supporting_phrases.forEach(p => {
-              if (!p) return;
-              const li = document.createElement('li');
-              li.textContent = p;
-              ul.appendChild(li);
-            });
-
-            sigWrap.appendChild(ul);
-            body.appendChild(sigWrap);
-          }
-
-          if (Array.isArray(m.url_list) && m.url_list.length) {
-            const urlWrap = document.createElement('div');
-            urlWrap.className = 'small mt-2';
-
-            const label = document.createElement('div');
-            label.className = 'text-muted mb-1';
-            label.textContent = 'Seen in these links:';
-            urlWrap.appendChild(label);
-
-            const ul2 = document.createElement('ul');
-            ul2.className = 'mb-0 ps-3';
-
-            m.url_list.forEach(u => {
-              if (!u) return;
-              const li = document.createElement('li');
-              const a = document.createElement('a');
-              a.href = u;
-              a.textContent = u;
-              a.target = '_blank';
-              a.rel = 'noopener noreferrer';
-              li.appendChild(a);
-              ul2.appendChild(li);
-            });
-
-            urlWrap.appendChild(ul2);
-            body.appendChild(urlWrap);
-          }
-
-          card.appendChild(body);
-          list.appendChild(card);
-        });
-
-        if (payload.notes) {
-          const notes = document.createElement('div');
-          notes.className = 'text-muted small mt-2';
-          notes.textContent = payload.notes;
-          target.appendChild(notes);
-        }
-      }
-
-      function relationBadgeClass(rel) {
-        const r = String(rel || '').toLowerCase();
-        if (r === 'direct') return 'text-bg-primary';
-        if (r === 'adjacent') return 'text-bg-secondary';
-        if (r === 'emerging') return 'text-bg-warning';
-        return 'text-bg-light';
-      }
-
-      function confidenceBadgeClass(c) {
-        const v = String(c || '').toLowerCase();
-        if (v === 'high') return 'text-bg-success';
-        if (v === 'medium') return 'text-bg-info';
-        if (v === 'low') return 'text-bg-light';
-        return 'text-bg-light';
-      }
-
-      function escapeHtml(str) {
-        return String(str)
-          .replaceAll('&', '&amp;')
-          .replaceAll('<', '&lt;')
-          .replaceAll('>', '&gt;')
-          .replaceAll('"', '&quot;')
-          .replaceAll("'", '&#039;');
-      }
-
-      document.addEventListener('DOMContentLoaded', () => {
-        const generalTab = getEl('SearchModeGeneral');
-        const peopleTab = getEl('SearchModePeople');
-        const generalPanel = getEl('MatchModeGeneral');
-        const peoplePanel = getEl('MatchModePeople');
-        const peopleFinderBtn = getEl('PeopleFinderBtn');
-        const peopleBox = getEl('PeopleFinderNames');
-        const peopleSpinner = getEl('PeopleFinderBtnSpinner');
-        const peopleBtnText = getEl('PeopleFinderBtnText');
-        const peopleOut = getEl('PeopleFinderResults');
-
-        const updatePeopleBtnState = () => {
-          const hasText = (peopleBox.value || '')
-            .split('\n')
-            .some(s => s.trim().length > 0);
-
-          peopleFinderBtn.disabled = !hasText;
-          peopleFinderBtn.classList.toggle('btn-primary', hasText);
-          peopleFinderBtn.classList.toggle('btn-secondary', !hasText);
-        };
-
-        const typeInputs = [typePerson(), typeSession()];
-        typeInputs.forEach(cb => {
-          cb.addEventListener('change', () => {
-            if (!typeInputs.some(x => x.checked)) {
-              cb.checked = true;
-            }
-          });
-        });
-
-        generalTab.addEventListener('click', () => {
-          generalTab.classList.add('active');
-          peopleTab.classList.remove('active');
-          generalPanel.classList.remove('d-none');
-          peoplePanel.classList.add('d-none');
-        });
-
-        peopleTab.addEventListener('click', () => {
-          peopleTab.classList.add('active');
-          generalTab.classList.remove('active');
-          peoplePanel.classList.remove('d-none');
-          generalPanel.classList.add('d-none');
-        });
-
-        peopleBox.addEventListener('input', updatePeopleBtnState);
-        updatePeopleBtnState();
-
-        peopleFinderBtn.addEventListener('click', async () => {
-          const names = peopleBox.value
-            .split('\n')
-            .map(s => s.trim())
-            .filter(s => s.length > 0);
-
-          peopleFinderBtn.disabled = true;
-          peopleBtnText.textContent = 'Starting...';
-          peopleSpinner.classList.remove('d-none');
-          peopleOut.innerHTML = '';
-
-          if (names.length === 0) {
-            peopleOut.innerHTML = `
-              <div class="alert alert-warning" role="alert">
-                Please enter at least one name.
-              </div>
-            `;
-            peopleSpinner.classList.add('d-none');
-            peopleBtnText.textContent = '(Try to) find people';
-            updatePeopleBtnState();
-            return;
-          }
-
+      await new Promise((resolve, reject) => {
+        matchProgressTimer = setInterval(async () => {
           try {
-            const { job_id } = await fetchJSON('/find_people', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ names })
-            });
-
-            await new Promise((resolve, reject) => {
-              peopleFindProgressTimer = setInterval(async () => {
-                try {
-                  const { done, total, status, message } = await fetchJSON(
-                    `/find_people_status?job_id=${encodeURIComponent(job_id)}`
-                  );
-
-                  if (total > 0) {
-                    peopleBtnText.textContent =
-                      `Finding people... (${done} of ${total} processed)`;
-                  } else {
-                    peopleBtnText.textContent = 'Finding people...';
-                  }
-
-                  if (status === 'error') {
-                    clearInterval(peopleFindProgressTimer);
-                    peopleFindProgressTimer = null;
-                    reject(new Error(message || 'Find people failed'));
-                  }
-                  if (status === 'done') {
-                    clearInterval(peopleFindProgressTimer);
-                    peopleFindProgressTimer = null;
-                    resolve();
-                  }
-                } catch (e) {
-                  clearInterval(peopleFindProgressTimer);
-                  peopleFindProgressTimer = null;
-                  reject(e);
-                }
-              }, 1000);
-            });
-
-            const matches = await fetchJSON(
-              `/find_people_result?job_id=${encodeURIComponent(job_id)}`
+            const { done, total, status, message } = await fetchJSON(
+              `/search_progress?job_id=${encodeURIComponent(job_id)}`
             );
 
-            if (!Array.isArray(matches) || matches.length === 0) {
-              peopleOut.innerHTML = `
-                <div class="alert alert-warning" role="alert">
-                  No matches returned.
-                </div>
-              `;
+            if (total > 0) {
+              txt.textContent =
+                `Matching... (${done} of ${total} chunks done) -- Do not navigate away from the page`;
             } else {
-              const accordion = document.createElement('div');
-              accordion.className = 'accordion';
-              accordion.id = 'PeopleFinderAccordion';
+              txt.textContent = 'Matching...';
+            }
 
-              matches.forEach((m, idx) => {
-                const item = document.createElement('div');
-                item.className = 'accordion-item';
-
-                const headingId = `pf-heading-${idx}`;
-                const collapseId = `pf-collapse-${idx}`;
-
-                const header = document.createElement('h2');
-                header.className = 'accordion-header';
-                header.id = headingId;
-
-                const btn = document.createElement('button');
-                btn.className = 'accordion-button collapsed d-flex justify-content-between align-items-center';
-                btn.type = 'button';
-                btn.setAttribute('data-bs-toggle', 'collapse');
-                btn.setAttribute('data-bs-target', `#${collapseId}`);
-                btn.setAttribute('aria-expanded', 'false');
-                btn.setAttribute('aria-controls', collapseId);
-
-                const labelWrap = document.createElement('div');
-                labelWrap.className = 'me-2';
-
-                const baseDiv = document.createElement('div');
-                baseDiv.innerHTML = `<strong>${escapeHtml(m.base_name || '')}</strong>`;
-
-                const matchDiv = document.createElement('div');
-                matchDiv.className = 'small text-muted';
-                matchDiv.textContent = m.matched_name || 'No matched name';
-
-                labelWrap.appendChild(baseDiv);
-                labelWrap.appendChild(matchDiv);
-
-                const badge = document.createElement('span');
-                let badgeClass = '';
-                let badgeText = '';
-
-                if (m.match_type === 'exact') {
-                  badgeClass = 'bg-success';
-                  badgeText = 'Exact match';
-                } else if (m.match_type === 'partial') {
-                  badgeClass = 'bg-warning text-dark';
-                  badgeText = 'Partial match';
-                } else {
-                  badgeClass = 'bg-secondary';
-                  badgeText = 'Not matched';
-                }
-
-                badge.className = 'badge rounded-pill ' + badgeClass;
-                badge.textContent = badgeText;
-
-                btn.appendChild(labelWrap);
-                btn.appendChild(badge);
-
-                header.appendChild(btn);
-
-                const collapse = document.createElement('div');
-                collapse.id = collapseId;
-                collapse.className = 'accordion-collapse collapse';
-                collapse.setAttribute('aria-labelledby', headingId);
-                collapse.setAttribute('data-bs-parent', '#PeopleFinderAccordion');
-
-                const body = document.createElement('div');
-                body.className = 'accordion-body';
-
-                if (Array.isArray(m.url_list) && m.url_list.length) {
-                  const title = document.createElement('div');
-                  title.className = 'fw-semibold mb-2';
-                  title.textContent = 'Found in these pages:';
-                  body.appendChild(title);
-
-                  const ul = document.createElement('ul');
-                  ul.className = 'mb-0';
-                  m.url_list.forEach(u => {
-                    if (!u) return;
-                    const li = document.createElement('li');
-                    const a = document.createElement('a');
-                    a.href = u;
-                    a.target = '_blank';
-                    a.rel = 'noopener noreferrer';
-                    a.textContent = u;
-                    li.appendChild(a);
-                    ul.appendChild(li);
-                  });
-                  body.appendChild(ul);
-                } else {
-                  const none = document.createElement('div');
-                  none.className = 'text-muted';
-                  none.textContent = 'No pages found for this person.';
-                  body.appendChild(none);
-                }
-
-                collapse.appendChild(body);
-                item.appendChild(collapse);
-                accordion.appendChild(item);
-              });
-
-              peopleOut.appendChild(accordion);
+            if (status === 'error') {
+              clearInterval(matchProgressTimer);
+              matchProgressTimer = null;
+              reject(new Error(message || 'Search failed'));
+            }
+            if (status === 'done') {
+              clearInterval(matchProgressTimer);
+              matchProgressTimer = null;
+              resolve();
             }
           } catch (e) {
-            console.error('People finder error:', e);
-            peopleOut.innerHTML = `
-              <div class="alert alert-danger" role="alert">
-                Error while trying to find people.
-              </div>
-            `;
-          } finally {
-            peopleSpinner.classList.add('d-none');
-            peopleBtnText.textContent = '(Try to) find people';
-            updatePeopleBtnState();
+            clearInterval(matchProgressTimer);
+            matchProgressTimer = null;
+            reject(e);
           }
-        });
+        }, 1000);
       });
-    </script>
+
+      const result = await fetchJSON(
+        `/search_result?job_id=${encodeURIComponent(job_id)}`
+      );
+      renderMatches(result);
+    } catch (e) {
+      console.error('Matching error:', e);
+      renderMatches({ query: input, matches: [], notes: 'Error fetching matches.' });
+    } finally {
+      btn.disabled = false;
+      box.disabled = false;
+      txt.textContent = 'Find Matches';
+      spin.classList.add('d-none');
+    }
+  });
+
+  function renderMatches(payload) {
+    const target = getEl('MatchResults');
+    target.innerHTML = '';
+
+    if (!payload || !Array.isArray(payload.matches) || payload.matches.length === 0) {
+      target.innerHTML = `
+        <div class="alert alert-warning" role="alert">
+          No matches found for this query.
+        </div>
+      `;
+      if (payload?.notes) {
+        const notes = document.createElement('div');
+        notes.className = 'text-muted small mt-1';
+        notes.textContent = payload.notes;
+        target.appendChild(notes);
+      }
+      return;
+    }
+
+    const hdr = document.createElement('div');
+    hdr.className = 'mb-3';
+    hdr.innerHTML = `
+      <div class="fw-semibold">Query</div>
+      <div class="text-muted">${escapeHtml(payload.query || '')}</div>
+    `;
+    target.appendChild(hdr);
+
+    const list = document.createElement('div');
+    list.className = 'd-flex flex-column gap-3';
+    target.appendChild(list);
+
+    payload.matches.forEach((m, idx) => {
+      if (!m.is_relevant) {
+        return;
+      }
+      const card = document.createElement('div');
+      card.className = 'card shadow-sm';
+
+      const body = document.createElement('div');
+      body.className = 'card-body';
+
+      const title = document.createElement('div');
+      title.className = 'd-flex align-items-start justify-content-between flex-wrap gap-2';
+
+      const nameEl = document.createElement('h5');
+      nameEl.className = 'card-title mb-0 fw-bold person-name';
+      nameEl.style.cursor = 'pointer';
+
+      const numSpan = document.createElement('span');
+      numSpan.className = 'text-muted me-2';
+      numSpan.textContent = `${idx + 1}.`;
+
+      const textSpan = document.createElement('span');
+      textSpan.textContent = m.name || 'Unknown';
+
+      nameEl.appendChild(numSpan);
+      nameEl.appendChild(textSpan);
+
+      title.appendChild(nameEl);
+
+      body.appendChild(title);
+
+      if (m.answer || m.reason) {
+        const desc = document.createElement('p');
+        desc.className = 'mt-2 mb-2';
+
+        if (m.answer) {
+          const answerSpan = document.createElement('span');
+          answerSpan.textContent = m.answer;
+          desc.appendChild(answerSpan);
+        }
+
+        if (m.reason) {
+          const reasonSpan = document.createElement('span');
+          reasonSpan.className = 'text-muted ms-2';
+          reasonSpan.textContent = m.reason;
+          desc.appendChild(reasonSpan);
+        }
+
+        body.appendChild(desc);
+      }
+
+      if (Array.isArray(m.supporting_phrases) && m.supporting_phrases.length) {
+        const sigWrap = document.createElement('div');
+        sigWrap.className = 'small text-muted';
+
+        const ul = document.createElement('ul');
+        ul.className = 'mb-0 ps-3';
+
+        m.supporting_phrases.forEach(p => {
+          if (!p) return;
+          const li = document.createElement('li');
+          li.textContent = p;
+          ul.appendChild(li);
+        });
+
+        sigWrap.appendChild(ul);
+        body.appendChild(sigWrap);
+      }
+
+      if (Array.isArray(m.url_list) && m.url_list.length) {
+        const urlWrap = document.createElement('div');
+        urlWrap.className = 'small mt-2';
+
+        const label = document.createElement('div');
+        label.className = 'text-muted mb-1';
+        label.textContent = 'Seen in these links:';
+        urlWrap.appendChild(label);
+
+        const ul2 = document.createElement('ul');
+        ul2.className = 'mb-0 ps-3';
+
+        m.url_list.forEach(u => {
+          if (!u) return;
+          const li = document.createElement('li');
+          const a = document.createElement('a');
+          a.href = u;
+          a.textContent = u;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          li.appendChild(a);
+          ul2.appendChild(li);
+        });
+
+        urlWrap.appendChild(ul2);
+        body.appendChild(urlWrap);
+      }
+
+      card.appendChild(body);
+      list.appendChild(card);
+    });
+
+    if (payload.notes) {
+      const notes = document.createElement('div');
+      notes.className = 'text-muted small mt-2';
+      notes.textContent = payload.notes;
+      target.appendChild(notes);
+    }
+  }
+
+  function relationBadgeClass(rel) {
+    const r = String(rel || '').toLowerCase();
+    if (r === 'direct') return 'text-bg-primary';
+    if (r === 'adjacent') return 'text-bg-secondary';
+    if (r === 'emerging') return 'text-bg-warning';
+    return 'text-bg-light';
+  }
+
+  function confidenceBadgeClass(c) {
+    const v = String(c || '').toLowerCase();
+    if (v === 'high') return 'text-bg-success';
+    if (v === 'medium') return 'text-bg-info';
+    if (v === 'low') return 'text-bg-light';
+    return 'text-bg-light';
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const generalTab = getEl('SearchModeGeneral');
+    const peopleTab = getEl('SearchModePeople');
+    const generalPanel = getEl('MatchModeGeneral');
+    const peoplePanel = getEl('MatchModePeople');
+    const peopleFinderBtn = getEl('PeopleFinderBtn');
+    const peopleBox = getEl('PeopleFinderNames');
+    const peopleSpinner = getEl('PeopleFinderBtnSpinner');
+    const peopleBtnText = getEl('PeopleFinderBtnText');
+    const peopleOut = getEl('PeopleFinderResults');
+
+    const updatePeopleBtnState = () => {
+      const hasText = (peopleBox.value || '')
+        .split('\n')
+        .some(s => s.trim().length > 0);
+
+      peopleFinderBtn.disabled = !hasText;
+      peopleFinderBtn.classList.toggle('btn-primary', hasText);
+      peopleFinderBtn.classList.toggle('btn-secondary', !hasText);
+    };
+
+    const typeInputs = [typePerson(), typeSession()];
+    typeInputs.forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (!typeInputs.some(x => x.checked)) {
+          cb.checked = true;
+        }
+      });
+    });
+
+    generalTab.addEventListener('click', () => {
+      generalTab.classList.add('active');
+      peopleTab.classList.remove('active');
+      generalPanel.classList.remove('d-none');
+      peoplePanel.classList.add('d-none');
+    });
+
+    peopleTab.addEventListener('click', () => {
+      peopleTab.classList.add('active');
+      generalTab.classList.remove('active');
+      peoplePanel.classList.remove('d-none');
+      generalPanel.classList.add('d-none');
+    });
+
+    peopleBox.addEventListener('input', updatePeopleBtnState);
+    updatePeopleBtnState();
+
+    peopleFinderBtn.addEventListener('click', async () => {
+      const names = peopleBox.value
+        .split('\n')
+        .map(s => s.trim())
+        .filter(s => s.length > 0);
+
+      peopleFinderBtn.disabled = true;
+      peopleBtnText.textContent = 'Starting...';
+      peopleSpinner.classList.remove('d-none');
+      peopleOut.innerHTML = '';
+
+      if (names.length === 0) {
+        peopleOut.innerHTML = `
+          <div class="alert alert-warning" role="alert">
+            Please enter at least one name.
+          </div>
+        `;
+        peopleSpinner.classList.add('d-none');
+        peopleBtnText.textContent = '(Try to) find people';
+        updatePeopleBtnState();
+        return;
+      }
+
+      try {
+        const matches = await fetchJSON(
+          `/find_people_result?job_id=${encodeURIComponent(job_id)}`
+        );
+
+        peopleOut.innerHTML = '';
+
+        if (!Array.isArray(matches) || matches.length === 0) {
+          peopleOut.innerHTML = `
+            <div class="alert alert-warning" role="alert">
+              No matches returned.
+            </div>
+          `;
+        } else {
+          matches.forEach((group, groupIdx) => {
+            if (!Array.isArray(group) || group.length === 0) return;
+
+            const baseName = group[0].base_name || '';
+
+            const card = document.createElement('div');
+            card.className = 'card mb-3';
+
+            const cardHeader = document.createElement('div');
+            cardHeader.className = 'card-header d-flex justify-content-between align-items-center';
+
+            const headerLeft = document.createElement('div');
+            const baseDiv = document.createElement('div');
+            baseDiv.innerHTML = `<strong>${escapeHtml(baseName)}</strong>`;
+
+            const countDiv = document.createElement('div');
+            countDiv.className = 'small text-muted';
+            countDiv.textContent = `${group.length} match${group.length === 1 ? '' : 'es'}`;
+
+            headerLeft.appendChild(baseDiv);
+            headerLeft.appendChild(countDiv);
+
+            cardHeader.appendChild(headerLeft);
+            card.appendChild(cardHeader);
+
+            const cardBody = document.createElement('div');
+            cardBody.className = 'card-body';
+
+            const accordion = document.createElement('div');
+            accordion.className = 'accordion';
+            accordion.id = `PeopleFinderAccordion-${groupIdx}`;
+
+            group.forEach((m, idx) => {
+              const item = document.createElement('div');
+              item.className = 'accordion-item';
+
+              const headingId = `pf-heading-${groupIdx}-${idx}`;
+              const collapseId = `pf-collapse-${groupIdx}-${idx}`;
+
+              const header = document.createElement('h2');
+              header.className = 'accordion-header';
+              header.id = headingId;
+
+              const btn = document.createElement('button');
+              btn.className = 'accordion-button collapsed d-flex justify-content-between align-items-center';
+              btn.type = 'button';
+              btn.setAttribute('data-bs-toggle', 'collapse');
+              btn.setAttribute('data-bs-target', `#${collapseId}`);
+              btn.setAttribute('aria-expanded', 'false');
+              btn.setAttribute('aria-controls', collapseId);
+
+              const labelWrap = document.createElement('div');
+              labelWrap.className = 'me-2';
+
+              const matchNameDiv = document.createElement('div');
+              matchNameDiv.innerHTML = `<strong>${escapeHtml(m.matched_name || 'No matched name')}</strong>`;
+
+              const matchBaseDiv = document.createElement('div');
+              matchBaseDiv.className = 'small text-muted';
+              matchBaseDiv.textContent = `Query: ${baseName}`;
+
+              labelWrap.appendChild(matchNameDiv);
+              labelWrap.appendChild(matchBaseDiv);
+
+              const badge = document.createElement('span');
+              let badgeClass = '';
+              let badgeText = '';
+
+              if (m.match_type === 'exact') {
+                badgeClass = 'bg-success';
+                badgeText = 'Exact match';
+              } else if (m.match_type === 'partial') {
+                badgeClass = 'bg-warning text-dark';
+                badgeText = 'Partial match';
+              } else {
+                badgeClass = 'bg-secondary';
+                badgeText = 'Not matched';
+              }
+
+              badge.className = 'badge rounded-pill ' + badgeClass;
+              badge.textContent = badgeText;
+
+              btn.appendChild(labelWrap);
+              btn.appendChild(badge);
+
+              header.appendChild(btn);
+
+              const collapse = document.createElement('div');
+              collapse.id = collapseId;
+              collapse.className = 'accordion-collapse collapse';
+              collapse.setAttribute('aria-labelledby', headingId);
+              collapse.setAttribute('data-bs-parent', `#${accordion.id}`);
+
+              const body = document.createElement('div');
+              body.className = 'accordion-body';
+
+              if (Array.isArray(m.url_list) && m.url_list.length) {
+                const title = document.createElement('div');
+                title.className = 'fw-semibold mb-2';
+                title.textContent = 'Found in these pages:';
+                body.appendChild(title);
+
+                const ul = document.createElement('ul');
+                ul.className = 'mb-0';
+                m.url_list.forEach(u => {
+                  if (!u) return;
+                  const li = document.createElement('li');
+                  const a = document.createElement('a');
+                  a.href = u;
+                  a.target = '_blank';
+                  a.rel = 'noopener noreferrer';
+                  a.textContent = u;
+                  li.appendChild(a);
+                  ul.appendChild(li);
+                });
+                body.appendChild(ul);
+              } else {
+                const none = document.createElement('div');
+                none.className = 'text-muted';
+                none.textContent = 'No pages found for this match.';
+                body.appendChild(none);
+              }
+
+              collapse.appendChild(body);
+              item.appendChild(header);
+              item.appendChild(collapse);
+              accordion.appendChild(item);
+            });
+
+            cardBody.appendChild(accordion);
+            card.appendChild(cardBody);
+            peopleOut.appendChild(card);
+          });
+        }
+      } catch (e) {
+        console.error('People finder error:', e);
+        peopleOut.innerHTML = `
+          <div class="alert alert-danger" role="alert">
+            Error while trying to find people.
+          </div>
+        `;
+      } finally {
+        peopleSpinner.classList.add('d-none');
+        peopleBtnText.textContent = '(Try to) find people';
+        updatePeopleBtnState();
+      }
+    });
+  });
+</script>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   </body>
