@@ -268,8 +268,8 @@ Katherine Johnson"></textarea>
             label.textContent = 'Seen in these links:';
             urlWrap.appendChild(label);
 
-            const ul = document.createElement('ul');
-            ul.className = 'mb-0 ps-3';
+            const ul2 = document.createElement('ul');
+            ul2.className = 'mb-0 ps-3';
 
             m.url_list.forEach(u => {
               if (!u) return;
@@ -280,10 +280,10 @@ Katherine Johnson"></textarea>
               a.target = '_blank';
               a.rel = 'noopener noreferrer';
               li.appendChild(a);
-              ul.appendChild(li);
+              ul2.appendChild(li);
             });
 
-            urlWrap.appendChild(ul);
+            urlWrap.appendChild(ul2);
             body.appendChild(urlWrap);
           }
 
@@ -388,18 +388,41 @@ Katherine Johnson"></textarea>
                 </div>
               `;
             } else {
-              const list = document.createElement('div');
-              list.className = 'list-group';
+              const accordion = document.createElement('div');
+              accordion.className = 'accordion';
+              accordion.id = 'PeopleFinderAccordion';
 
-              matches.forEach(m => {
+              matches.forEach((m, idx) => {
                 const item = document.createElement('div');
-                item.className = 'list-group-item d-flex justify-content-between align-items-start';
+                item.className = 'accordion-item';
 
-                const left = document.createElement('div');
-                left.innerHTML = `
-                  <div><strong>${m.base_name || ''}</strong></div>
-                  <div class="small text-muted">${m.matched_name || 'No match found'}</div>
-                `;
+                const headingId = `pf-heading-${idx}`;
+                const collapseId = `pf-collapse-${idx}`;
+
+                const header = document.createElement('h2');
+                header.className = 'accordion-header';
+                header.id = headingId;
+
+                const btnInner = document.createElement('button');
+                btnInner.className = 'accordion-button collapsed d-flex justify-content-between align-items-center';
+                btnInner.type = 'button';
+                btnInner.setAttribute('data-bs-toggle', 'collapse');
+                btnInner.setAttribute('data-bs-target', `#${collapseId}`);
+                btnInner.setAttribute('aria-expanded', 'false');
+                btnInner.setAttribute('aria-controls', collapseId);
+
+                const labelWrap = document.createElement('div');
+                labelWrap.className = 'me-2';
+
+                const baseDiv = document.createElement('div');
+                baseDiv.innerHTML = `<strong>${escapeHtml(m.base_name || '')}</strong>`;
+
+                const matchDiv = document.createElement('div');
+                matchDiv.className = 'small text-muted';
+                matchDiv.textContent = m.matched_name || 'No matched name';
+
+                labelWrap.appendChild(baseDiv);
+                labelWrap.appendChild(matchDiv);
 
                 const badge = document.createElement('span');
                 let badgeClass = '';
@@ -419,12 +442,54 @@ Katherine Johnson"></textarea>
                 badge.className = 'badge rounded-pill ' + badgeClass;
                 badge.textContent = badgeText;
 
-                item.appendChild(left);
-                item.appendChild(badge);
-                list.appendChild(item);
+                btnInner.appendChild(labelWrap);
+                btnInner.appendChild(badge);
+
+                header.appendChild(btnInner);
+
+                const collapse = document.createElement('div');
+                collapse.id = collapseId;
+                collapse.className = 'accordion-collapse collapse';
+                collapse.setAttribute('aria-labelledby', headingId);
+                collapse.setAttribute('data-bs-parent', '#PeopleFinderAccordion');
+
+                const body = document.createElement('div');
+                body.className = 'accordion-body';
+
+                if (Array.isArray(m.url_list) && m.url_list.length) {
+                  const title = document.createElement('div');
+                  title.className = 'fw-semibold mb-2';
+                  title.textContent = 'Found in these pages:';
+                  body.appendChild(title);
+
+                  const ul = document.createElement('ul');
+                  ul.className = 'mb-0';
+                  m.url_list.forEach(u => {
+                    if (!u) return;
+                    const li = document.createElement('li');
+                    const a = document.createElement('a');
+                    a.href = u;
+                    a.target = '_blank';
+                    a.rel = 'noopener noreferrer';
+                    a.textContent = u;
+                    li.appendChild(a);
+                    ul.appendChild(li);
+                  });
+                  body.appendChild(ul);
+                } else {
+                  const none = document.createElement('div');
+                  none.className = 'text-muted';
+                  none.textContent = 'No pages found for this person.';
+                  body.appendChild(none);
+                }
+
+                collapse.appendChild(body);
+                item.appendChild(header);
+                item.appendChild(collapse);
+                accordion.appendChild(item);
               });
 
-              out.appendChild(list);
+              out.appendChild(accordion);
             }
           } catch (e) {
             console.error('People finder error:', e);
