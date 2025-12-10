@@ -497,54 +497,12 @@ Katherine Johnson"></textarea>
           .replaceAll("'", '&#039;');
       }
 
-      getEl('PeopleFinderBtn').addEventListener('click', () => {
-        const btn = getEl('PeopleFinderBtn');
-        const txt = getEl('PeopleFinderBtnText');
-        const spin = getEl('PeopleFinderBtnSpinner');
-        const box = getEl('PeopleFinderNames');
-        const out = getEl('PeopleFinderResults');
-
-        const names = box.value
-          .split('\n')
-          .map(s => s.trim())
-          .filter(s => s.length > 0);
-
-        btn.disabled = true;
-        txt.textContent = 'Working...';
-        spin.classList.remove('d-none');
-
-        out.innerHTML = '';
-        if (names.length === 0) {
-          out.innerHTML = `
-            <div class="alert alert-warning" role="alert">
-              Please enter at least one name.
-            </div>
-          `;
-        } else {
-          const list = document.createElement('ul');
-          list.className = 'mb-0';
-          names.forEach(n => {
-            const li = document.createElement('li');
-            li.textContent = n;
-            list.appendChild(li);
-          });
-          const wrapper = document.createElement('div');
-          wrapper.className = 'alert alert-info';
-          wrapper.innerHTML = '<div class="fw-semibold mb-1">Parsed names (no lookup yet):</div>';
-          wrapper.appendChild(list);
-          out.appendChild(wrapper);
-        }
-
-        btn.disabled = false;
-        txt.textContent = '(Try to) find people';
-        spin.classList.add('d-none');
-      });
-
       document.addEventListener('DOMContentLoaded', () => {
         const generalTab = getEl('SearchModeGeneral');
         const peopleTab = getEl('SearchModePeople');
         const generalPanel = getEl('MatchModeGeneral');
         const peoplePanel = getEl('MatchModePeople');
+        const peopleFinderBtn = getEl('PeopleFinderBtn');
 
         generalTab.addEventListener('click', () => {
           generalTab.classList.add('active');
@@ -558,6 +516,49 @@ Katherine Johnson"></textarea>
           generalTab.classList.remove('active');
           peoplePanel.classList.remove('d-none');
           generalPanel.classList.add('d-none');
+        });
+
+        peopleFinderBtn.addEventListener('click', () => {
+          const btn = getEl('PeopleFinderBtn');
+          const txt = getEl('PeopleFinderBtnText');
+          const spin = getEl('PeopleFinderBtnSpinner');
+          const box = getEl('PeopleFinderNames');
+          const out = getEl('PeopleFinderResults');
+
+          const names = box.value
+            .split('\n')
+            .map(s => s.trim())
+            .filter(s => s.length > 0);
+
+          btn.disabled = true;
+          txt.textContent = 'Working...';
+          spin.classList.remove('d-none');
+
+          out.innerHTML = '';
+          if (names.length === 0) {
+            out.innerHTML = `
+              <div class="alert alert-warning" role="alert">
+                Please enter at least one name.
+              </div>
+            `;
+          } else {
+            const list = document.createElement('ul');
+            list.className = 'mb-0';
+            names.forEach(n => {
+              const li = document.createElement('li');
+              li.textContent = n;
+              list.appendChild(li);
+            });
+            const wrapper = document.createElement('div');
+            wrapper.className = 'alert alert-info';
+            wrapper.innerHTML = '<div class="fw-semibold mb-1">Parsed names (no lookup yet):</div>';
+            wrapper.appendChild(list);
+            out.appendChild(wrapper);
+          }
+
+          btn.disabled = false;
+          txt.textContent = '(Try to) find people';
+          spin.classList.add('d-none');
         });
       });
     </script>
