@@ -486,10 +486,12 @@ gillian galford
         let hasOuterItems = false;
 
         matches.forEach((group, groupIdx) => {
-          if (!Array.isArray(group) || group.length === 0) return;
-
-          const realMatches = group.filter(m => m.score >= 80);
-          const realCount = realMatches.length;
+          if (!Array.isArray(group) || group.length === 0) {
+            const realMatches = 0;
+          } else {
+            const realMatches = group.filter(m => m.score >= 80);
+            const realCount = realMatches.length;
+          }
           if (realCount === 0) {
             const baseName = names[groupIdx] || '';
 
@@ -510,6 +512,7 @@ gillian galford
             body.appendChild(badge);
             card.appendChild(body);
             peopleOut.appendChild(card);
+            return
           };
 
           const baseName = group[0].base_name || '';
