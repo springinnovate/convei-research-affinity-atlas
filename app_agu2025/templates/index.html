@@ -629,7 +629,7 @@ gillian galford
                 outerLabelWrap.className = 'me-2';
 
                 const baseDiv = document.createElement('div');
-                baseDiv.innerHTML = `<strong>${escapeHtml(baseName)}</strong>`;
+                baseDiv.innerHTML = `<strong>${escapeHtml(m.base_name)}</strong>`;
 
                 const countDiv = document.createElement('div');
                 countDiv.className = 'small text-muted';
@@ -686,7 +686,7 @@ gillian galford
 
                   const matchBaseDiv = document.createElement('div');
                   matchBaseDiv.className = 'small text-muted';
-                  matchBaseDiv.textContent = `Query: ${baseName}`;
+                  matchBaseDiv.textContent = `Query: ${m.base_name}`;
 
                   labelWrap.appendChild(matchNameDiv);
                   labelWrap.appendChild(matchBaseDiv);
