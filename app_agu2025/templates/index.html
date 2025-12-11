@@ -497,13 +497,30 @@ gillian galford
           if (realCount === 1) {
             const m = realMatches[0];
 
-            const card = document.createElement('div');
-            card.className = 'card mb-3';
+            const accordion = document.createElement('div');
+            accordion.className = 'accordion mb-3';
+            accordion.id = `PeopleFinderSingleAccordion-${groupIdx}`;
 
-            const cardHeader = document.createElement('div');
-            cardHeader.className = 'card-header d-flex justify-content-between align-items-center';
+            const item = document.createElement('div');
+            item.className = 'accordion-item';
+
+            const headingId = `pf-single-heading-${groupIdx}`;
+            const collapseId = `pf-single-collapse-${groupIdx}`;
+
+            const header = document.createElement('h2');
+            header.className = 'accordion-header';
+            header.id = headingId;
+
+            const btn = document.createElement('button');
+            btn.className = 'accordion-button collapsed d-flex justify-content-between align-items-center';
+            btn.type = 'button';
+            btn.setAttribute('data-bs-toggle', 'collapse');
+            btn.setAttribute('data-bs-target', `#${collapseId}`);
+            btn.setAttribute('aria-expanded', 'false');
+            btn.setAttribute('aria-controls', collapseId);
 
             const headerLeft = document.createElement('div');
+            headerLeft.className = 'me-2';
 
             const baseDiv = document.createElement('div');
             baseDiv.innerHTML = `<strong>${escapeHtml(baseName)}</strong>`;
@@ -533,41 +550,16 @@ gillian galford
             badge.className = 'badge rounded-pill ' + badgeClass;
             badge.textContent = badgeText;
 
-            cardHeader.appendChild(headerLeft);
-            cardHeader.appendChild(badge);
-            card.appendChild(cardHeader);
+            btn.appendChild(headerLeft);
+            btn.appendChild(badge);
 
-            const cardBody = document.createElement('div');
-            cardBody.className = 'card-body';
-
-            const innerAccordion = document.createElement('div');
-            innerAccordion.className = 'accordion';
-            innerAccordion.id = `PeopleFinderSingleAccordion-${groupIdx}`;
-
-            const item = document.createElement('div');
-            item.className = 'accordion-item';
-
-            const headingId = `pf-single-heading-${groupIdx}`;
-            const collapseId = `pf-single-collapse-${groupIdx}`;
-
-            const header = document.createElement('h2');
-            header.className = 'accordion-header';
-            header.id = headingId;
-
-            const btn = document.createElement('button');
-            btn.className = 'accordion-button collapsed';
-            btn.type = 'button';
-            btn.setAttribute('data-bs-toggle', 'collapse');
-            btn.setAttribute('data-bs-target', `#${collapseId}`);
-            btn.setAttribute('aria-expanded', 'false');
-            btn.setAttribute('aria-controls', collapseId);
-            btn.textContent = 'Show pages';
+            header.appendChild(btn);
 
             const collapse = document.createElement('div');
             collapse.id = collapseId;
             collapse.className = 'accordion-collapse collapse';
             collapse.setAttribute('aria-labelledby', headingId);
-            collapse.setAttribute('data-bs-parent', `#${innerAccordion.id}`);
+            collapse.setAttribute('data-bs-parent', `#${accordion.id}`);
 
             const body = document.createElement('div');
             body.className = 'accordion-body';
@@ -589,7 +581,6 @@ gillian galford
                 a.rel = 'noopener noreferrer';
                 a.textContent = u;
                 li.appendChild(a);
-                ul.appendChild(ul.lastChild || li);
                 ul.appendChild(li);
               });
               body.appendChild(ul);
@@ -601,17 +592,13 @@ gillian galford
             }
 
             collapse.appendChild(body);
-            header.appendChild(btn);
             item.appendChild(header);
             item.appendChild(collapse);
-            innerAccordion.appendChild(item);
+            accordion.appendChild(item);
 
-            cardBody.appendChild(innerAccordion);
-            card.appendChild(cardBody);
-            peopleOut.appendChild(card);
+            peopleOut.appendChild(accordion);
             return;
           }
-
           hasOuterItems = true;
 
           const outerItem = document.createElement('div');
