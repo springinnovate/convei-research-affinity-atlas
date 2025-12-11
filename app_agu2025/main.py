@@ -347,7 +347,7 @@ def score_similar_names(base_name, test_name):
         return 101
     base_norm = _normalize_name(base_name)
     test_norm = _normalize_name(test_name)
-    return fuzz.token_set_ratio(base_norm, test_norm)
+    return fuzz.WRatio(base_norm, test_norm)
 
 
 def _process_one_person(

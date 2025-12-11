@@ -495,12 +495,13 @@ gillian galford
               let hasOuterItems = false;
 
               matches.forEach((group, groupIdx) => {
-                if (!Array.isArray(group) || group.length === 0) return;
+                const real_matches = group.filter(m => m.score >= 80).length;
+                if (!Array.isArray(group) || real_matches === 0) return;
 
                 const baseName = group[0].base_name || '';
-
+                // this counts how many REAL matches there are
                 // If there is exactly one match for this base, render a simple card
-                if (group.length === 1) {
+                if (real_matches === 1) {
                   const m = group[0];
 
                   const card = document.createElement('div');
@@ -646,8 +647,7 @@ gillian galford
 
                 const countDiv = document.createElement('div');
                 countDiv.className = 'small text-muted';
-                const count = group.filter(m => m.score >= 80).length;
-                countDiv.textContent = `${count} match${count === 1 ? '' : 'es'}`;
+                countDiv.textContent = `${real_matches} match${real_matches === 1 ? '' : 'es'}`;
 
                 outerLabelWrap.appendChild(baseDiv);
                 outerLabelWrap.appendChild(countDiv);
