@@ -485,7 +485,10 @@ gillian galford
 
         let hasOuterItems = false;
 
-        matches.forEach((group, groupIdx) => {
+        const sortedMatches = matches
+          .slice()
+          .sort((a, b) => b[0].score - a[0].score);
+        sortedMatches.forEach((group, groupIdx) => {
           let realCount = null;
           let realMatches = null;
           if (!Array.isArray(group) || group.length === 0) {
