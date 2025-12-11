@@ -485,10 +485,10 @@ gillian galford
 
         let hasOuterItems = false;
 
-        const sortedMatches = matches
-          .slice()
-          .sort((a, b) => b[0].score - a[0].score);
-        sortedMatches.forEach((group, groupIdx) => {
+        const sorted = matches
+          .map((group, idx) => ({ group, baseName: names[idx] || '' }))
+          .sort((a, b) => b.group[0].score - a.group[0].score);
+        sorted.forEach(({ group, baseName }, groupIdx) => {
           let realCount = null;
           let realMatches = null;
           if (!Array.isArray(group) || group.length === 0) {
@@ -498,8 +498,6 @@ gillian galford
             realCount = realMatches.length;
           }
           if (realCount === 0) {
-            const baseName = names[groupIdx] || '';
-
             const card = document.createElement('div');
             card.className = 'card mb-3';
 
@@ -519,8 +517,6 @@ gillian galford
             peopleOut.appendChild(card);
             return
           };
-
-          const baseName = group[0].base_name || '';
 
           if (realCount === 1) {
             const m = realMatches[0];
