@@ -494,33 +494,51 @@ gillian galford
 
               let hasOuterItems = false;
 
-              matches.forEach((group, groupIdx) => {
-                const real_matches = group.filter(m => m.score >= 80).length;
-                if (!Array.isArray(group) || real_matches === 0) return;
+              groups.forEach((group, groupIdx) => {
+                const realMatches = group.filter(m => m.score >= 80);
+                const realCount = realMatches.length;
+                if (!realCount) return;
 
-                const baseName = group[0].base_name || '';
-                // this counts how many REAL matches there are
-                // If there is exactly one match for this base, render a simple card
-                if (real_matches === 1) {
-                  const m = group[0];
+                if (realCount === 1) {
+                  const m = realMatches[0];
 
-                  const card = document.createElement('div');
-                  card.className = 'card mb-3';
+                  hasOuterItems = true;
 
-                  const cardHeader = document.createElement('div');
-                  cardHeader.className = 'card-header d-flex justify-content-between align-items-center';
+                  const outerItem = document.createElement('div');
+                  outerItem.className = 'accordion-item';
 
-                  const headerLeft = document.createElement('div');
+                  const outerHeadingId = `pf-outer-heading-${groupIdx}`;
+                  const outerCollapseId = `pf-outer-collapse-${groupIdx}`;
 
-                  const baseDiv = document.createElement('div');
-                  baseDiv.innerHTML = `<strong>${escapeHtml(baseName)}</strong>`;
+                  const outerHeader = document.createElement('h2');
+                  outerHeader.className = 'accordion-header';
+                  outerHeader.id = outerHeadingId;
 
-                  const matchDiv = document.createElement('div');
-                  matchDiv.className = 'small text-muted';
-                  matchDiv.textContent = m.matched_name || 'No matched name';
+                  const outerBtn = document.createElement('button');
+                  outerBtn.className = 'accordion-button collapsed d-flex justify-content-between align-items-center';
+                  outerBtn.type = 'button';
+                  outerBtn.setAttribute('data-bs-toggle', 'collapse');
+                  outerBtn.setAttribute('data-bs-target', `#${outerCollapseId}`);
+                  outerBtn.setAttribute('aria-expanded', 'false');
+                  outerBtn.setAttribute('aria-controls', outerCollapseId);
 
-                  headerLeft.appendChild(baseDiv);
-                  headerLeft.appendChild(matchDiv);
+                  const outerLabelWrap = document.createElement('div');
+                  outerLabelWrap.className = 'me-2';
+
+                  const matchNameDiv = document.createElement('div');
+                  matchNameDiv.innerHTML = `
+                    <strong>${escapeHtml(m.matched_name || 'No matched name')}</strong>
+                    <span style="margin-left: 0.5rem; color: #666; font-size: 0.9em;">
+                      ${m.score.toFixed(1)}
+                    </span>
+                  `;
+
+                  const matchBaseDiv = document.createElement('div');
+                  matchBaseDiv.className = 'small text-muted';
+                  matchBaseDiv.textContent = `Query: ${baseName}`;
+
+                  outerLabelWrap.appendChild(matchNameDiv);
+                  outerLabelWrap.appendChild(matchBaseDiv);
 
                   const badge = document.createElement('span');
                   let badgeClass = '';
@@ -540,50 +558,24 @@ gillian galford
                   badge.className = 'badge rounded-pill ' + badgeClass;
                   badge.textContent = badgeText;
 
-                  cardHeader.appendChild(headerLeft);
-                  cardHeader.appendChild(badge);
-                  card.appendChild(cardHeader);
+                  outerBtn.appendChild(outerLabelWrap);
+                  outerBtn.appendChild(badge);
+                  outerHeader.appendChild(outerBtn);
 
-                  const cardBody = document.createElement('div');
-                  cardBody.className = 'card-body';
+                  const outerCollapse = document.createElement('div');
+                  outerCollapse.id = outerCollapseId;
+                  outerCollapse.className = 'accordion-collapse collapse';
+                  outerCollapse.setAttribute('aria-labelledby', outerHeadingId);
+                  outerCollapse.setAttribute('data-bs-parent', `#${outerAccordion.id}`);
 
-                  const innerAccordion = document.createElement('div');
-                  innerAccordion.className = 'accordion';
-                  innerAccordion.id = `PeopleFinderSingleAccordion-${groupIdx}`;
-
-                  const item = document.createElement('div');
-                  item.className = 'accordion-item';
-
-                  const headingId = `pf-single-heading-${groupIdx}`;
-                  const collapseId = `pf-single-collapse-${groupIdx}`;
-
-                  const header = document.createElement('h2');
-                  header.className = 'accordion-header';
-                  header.id = headingId;
-
-                  const btn = document.createElement('button');
-                  btn.className = 'accordion-button collapsed';
-                  btn.type = 'button';
-                  btn.setAttribute('data-bs-toggle', 'collapse');
-                  btn.setAttribute('data-bs-target', `#${collapseId}`);
-                  btn.setAttribute('aria-expanded', 'false');
-                  btn.setAttribute('aria-controls', collapseId);
-                  btn.textContent = 'Show pages';
-
-                  const collapse = document.createElement('div');
-                  collapse.id = collapseId;
-                  collapse.className = 'accordion-collapse collapse';
-                  collapse.setAttribute('aria-labelledby', headingId);
-                  collapse.setAttribute('data-bs-parent', `#${innerAccordion.id}`);
-
-                  const body = document.createElement('div');
-                  body.className = 'accordion-body';
+                  const outerBody = document.createElement('div');
+                  outerBody.className = 'accordion-body';
 
                   if (Array.isArray(m.url_list) && m.url_list.length) {
                     const title = document.createElement('div');
                     title.className = 'fw-semibold mb-2';
                     title.textContent = 'Found in these pages:';
-                    body.appendChild(title);
+                    outerBody.appendChild(title);
 
                     const ul = document.createElement('ul');
                     ul.className = 'mb-0';
@@ -598,27 +590,21 @@ gillian galford
                       li.appendChild(a);
                       ul.appendChild(li);
                     });
-                    body.appendChild(ul);
+                    outerBody.appendChild(ul);
                   } else {
                     const none = document.createElement('div');
                     none.className = 'text-muted';
                     none.textContent = 'No pages found for this match.';
-                    body.appendChild(none);
+                    outerBody.appendChild(none);
                   }
 
-                  collapse.appendChild(body);
-                  header.appendChild(btn);
-                  item.appendChild(header);
-                  item.appendChild(collapse);
-                  innerAccordion.appendChild(item);
-
-                  cardBody.appendChild(innerAccordion);
-                  card.appendChild(cardBody);
-                  peopleOut.appendChild(card);
+                  outerCollapse.appendChild(outerBody);
+                  outerItem.appendChild(outerHeader);
+                  outerItem.appendChild(outerCollapse);
+                  outerAccordion.appendChild(outerItem);
                   return;
                 }
 
-                // Multiple matches for this base -> outer accordion with inner accordions
                 hasOuterItems = true;
 
                 const outerItem = document.createElement('div');
@@ -647,7 +633,7 @@ gillian galford
 
                 const countDiv = document.createElement('div');
                 countDiv.className = 'small text-muted';
-                countDiv.textContent = `${real_matches} match${real_matches === 1 ? '' : 'es'}`;
+                countDiv.textContent = `${realCount} match${realCount === 1 ? '' : 'es'}`;
 
                 outerLabelWrap.appendChild(baseDiv);
                 outerLabelWrap.appendChild(countDiv);
@@ -668,10 +654,7 @@ gillian galford
                 innerAccordion.className = 'accordion';
                 innerAccordion.id = `PeopleFinderInnerAccordion-${groupIdx}`;
 
-                group.sort((a, b) => b.score - a.score).forEach((m, idx) => {
-                  if (m.score < 80) { // this guards the threshold
-                    return
-                  }
+                realMatches.sort((a, b) => b.score - a.score).forEach((m, idx) => {
                   const item = document.createElement('div');
                   item.className = 'accordion-item';
 
@@ -695,11 +678,12 @@ gillian galford
 
                   const matchNameDiv = document.createElement('div');
                   matchNameDiv.innerHTML = `
-                      <strong>${escapeHtml(m.matched_name || 'No matched name')}</strong>
-                      <span style="margin-left: 0.5rem; color: #666; font-size: 0.9em;">
-                        ${m.score.toFixed(1)}
-                      </span>
-                    `;
+                    <strong>${escapeHtml(m.matched_name || 'No matched name')}</strong>
+                    <span style="margin-left: 0.5rem; color: #666; font-size: 0.9em;">
+                      ${m.score.toFixed(1)}
+                    </span>
+                  `;
+
                   const matchBaseDiv = document.createElement('div');
                   matchBaseDiv.className = 'small text-muted';
                   matchBaseDiv.textContent = `Query: ${baseName}`;
@@ -727,7 +711,6 @@ gillian galford
 
                   btn.appendChild(labelWrap);
                   btn.appendChild(badge);
-
                   header.appendChild(btn);
 
                   const collapse = document.createElement('div');
@@ -778,6 +761,7 @@ gillian galford
                 outerItem.appendChild(outerCollapse);
                 outerAccordion.appendChild(outerItem);
               });
+
 
               if (hasOuterItems) {
                 peopleOut.appendChild(outerAccordion);
