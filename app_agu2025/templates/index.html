@@ -657,7 +657,13 @@ gillian galford
           outerLabelWrap.appendChild(baseDivOuter);
           outerLabelWrap.appendChild(countDiv);
 
+          const outerBadge = document.createElement('span');
+          outerBadge.className = 'badge rounded-pill bg-warning text-dark';
+          outerBadge.textContent = 'Partial match';
+
           outerBtn.appendChild(outerLabelWrap);
+          outerBtn.appendChild(outerBadge);
+
           outerHeader.appendChild(outerBtn);
 
           const outerCollapse = document.createElement('div');
@@ -672,7 +678,6 @@ gillian galford
           const innerAccordion = document.createElement('div');
           innerAccordion.className = 'accordion';
           innerAccordion.id = `PeopleFinderInnerAccordion-${groupIdx}`;
-
           group
             .slice()
             .sort((a, b) => b.score - a.score)
