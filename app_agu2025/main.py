@@ -355,6 +355,7 @@ def _process_one_person(
 ) -> Optional[List[FindPeopleMatch]]:
     base_norm = _norm_name(base)
     base_parts = base_norm.split()
+    logging.info(f"processing peson {base_norm} to parts {base_parts}")
     if not base_parts:
         return None
 
