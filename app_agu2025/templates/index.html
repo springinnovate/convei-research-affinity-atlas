@@ -486,7 +486,29 @@ gillian galford
         let hasOuterItems = false;
 
         matches.forEach((group, groupIdx) => {
-          if (!Array.isArray(group) || group.length === 0) return;
+          if (!Array.isArray(group) || group.length === 0) {
+            const baseName = names[groupIdx] || '';
+
+            const card = document.createElement('div');
+            card.className = 'card mb-3';
+
+            const body = document.createElement('div');
+            body.className = 'card-body d-flex justify-content-between align-items-center';
+
+            const baseDiv = document.createElement('div');
+            baseDiv.innerHTML = `<strong>${escapeHtml(baseName)}</strong>`;
+
+            const badge = document.createElement('span');
+            badge.className = 'badge rounded-pill bg-secondary';
+            badge.textContent = 'No matches';
+
+            body.appendChild(baseDiv);
+            body.appendChild(badge);
+            card.appendChild(body);
+            peopleOut.appendChild(card);
+
+            return;
+          }
 
           const realMatches = group.filter(m => m.score >= 80);
           const realCount = realMatches.length;
