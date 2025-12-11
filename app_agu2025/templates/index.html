@@ -494,7 +494,7 @@ gillian galford
 
               let hasOuterItems = false;
 
-              groups.forEach((group, groupIdx) => {
+              matches.forEach((group, groupIdx) => {
                 const realMatches = group.filter(m => m.score >= 80);
                 const realCount = realMatches.length;
                 if (!realCount) return;
