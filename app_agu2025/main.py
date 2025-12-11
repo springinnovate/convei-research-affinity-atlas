@@ -367,6 +367,8 @@ def _process_one_person(
         )
         .first()
     )
+
+    logging.info(f"was it exact? {exact}")
     if exact:
         urls_q = (
             db.query(Page.url)
@@ -379,7 +381,7 @@ def _process_one_person(
 
         return [
             FindPeopleMatch(
-                score=1,
+                score=101,
                 base_name=base,
                 matched_name=exact.name,
                 match_type="exact",
