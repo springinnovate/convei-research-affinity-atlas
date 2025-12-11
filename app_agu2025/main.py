@@ -416,6 +416,7 @@ def _process_one_person(
 
     for c in candidates:
         score = score_similar_names(base, c.name)
+        logging.info(f"matching {base} to {c.name} with score {score}")
         if score == 0:
             # nothing matched
             continue
