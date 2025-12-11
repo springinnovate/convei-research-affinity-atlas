@@ -486,11 +486,12 @@ gillian galford
         let hasOuterItems = false;
 
         matches.forEach((group, groupIdx) => {
+          let realCount = null;
           if (!Array.isArray(group) || group.length === 0) {
-            const realCount = 0;
+            realCount = 0;
           } else {
             const realMatches = group.filter(m => m.score >= 80);
-            const realCount = realMatches.length;
+            realCount = realMatches.length;
           }
           if (realCount === 0) {
             const baseName = names[groupIdx] || '';
