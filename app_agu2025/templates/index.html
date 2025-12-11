@@ -402,6 +402,7 @@ gillian galford
     updatePeopleBtnState();
 
     peopleFinderBtn.addEventListener('click', async () => {
+      const SCORE_THRESHOLD = 88;
       const names = peopleBox.value
         .split('\n')
         .map(s => s.trim())
@@ -494,7 +495,7 @@ gillian galford
           if (!Array.isArray(group) || group.length === 0) {
             realCount = 0;
           } else {
-            realMatches = group.filter(m => m.score >= 87);
+            realMatches = group.filter(m => m.score >= SCORE_THRESHOLD);
             realCount = realMatches.length;
           }
           if (realCount === 0) {
@@ -676,7 +677,7 @@ gillian galford
             .slice()
             .sort((a, b) => b.score - a.score)
             .forEach((m, idx) => {
-              if (m.score < 87) return;
+              if (m.score < SCORE_THRESHOLD) return;
 
               const item = document.createElement('div');
               item.className = 'accordion-item';
