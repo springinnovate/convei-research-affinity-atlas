@@ -624,7 +624,10 @@ gillian galford
             peopleOut.appendChild(accordion);
             return;
           }
-          hasOuterItems = true;
+          // inside the loop, in the multi-match branch
+          const outerAccordion = document.createElement('div');
+          outerAccordion.className = 'accordion mb-3';
+          outerAccordion.id = `PeopleFinderOuterAccordion-${groupIdx}`;
 
           const outerItem = document.createElement('div');
           outerItem.className = 'accordion-item';
@@ -678,6 +681,7 @@ gillian galford
           const innerAccordion = document.createElement('div');
           innerAccordion.className = 'accordion';
           innerAccordion.id = `PeopleFinderInnerAccordion-${groupIdx}`;
+
           group
             .slice()
             .sort((a, b) => b.score - a.score)
@@ -790,11 +794,11 @@ gillian galford
           outerItem.appendChild(outerHeader);
           outerItem.appendChild(outerCollapse);
           outerAccordion.appendChild(outerItem);
-        });
 
-        if (hasOuterItems) {
+          // append in-place, so order matches your sorted loop
           peopleOut.appendChild(outerAccordion);
-        }
+
+        });
       } catch (e) {
         console.error('People finder error:', e);
         peopleOut.innerHTML = `
