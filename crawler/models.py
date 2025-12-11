@@ -113,7 +113,7 @@ class EntityBio(Base):
 
     Attributes:
         id: Surrogate primary key.
-        type: Logical category of the entity (for example, 'Person', 'Session').
+        type: Logical category of the entity (for example, 'Person', 'Session')
         name: Human-readable label of the entity.
         bio: Aggregated, free-form bio text describing the entity.
 

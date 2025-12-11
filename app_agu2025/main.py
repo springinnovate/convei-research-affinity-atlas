@@ -344,7 +344,7 @@ def _normalize_name(s):
 
 def score_similar_names(base_name, test_name):
     if base_name == test_name:
-        return 100
+        return 101
     base_norm = _normalize_name(base_name)
     test_norm = _normalize_name(test_name)
     return fuzz.token_set_ratio(base_norm, test_norm)
@@ -416,7 +416,7 @@ def _process_one_person(
 
     for c in candidates:
         score = score_similar_names(base, c.name)
-
+        logging.info(f"scoring {base} to {c.name} score is {score}")
         if score == 0:
             # nothing matched
             continue
