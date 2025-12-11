@@ -491,7 +491,7 @@ gillian galford
           if (!Array.isArray(group) || group.length === 0) {
             realCount = 0;
           } else {
-            realMatches = group.filter(m => m.score >= 80);
+            realMatches = group.filter(m => m.score >= 87);
             realCount = realMatches.length;
           }
           if (realCount === 0) {
@@ -677,7 +677,7 @@ gillian galford
             .slice()
             .sort((a, b) => b.score - a.score)
             .forEach((m, idx) => {
-              if (m.score < 80) return;
+              if (m.score < 87) return;
 
               const item = document.createElement('div');
               item.className = 'accordion-item';
