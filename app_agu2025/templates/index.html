@@ -221,9 +221,6 @@ gillian galford
     target.appendChild(list);
 
     payload.matches.forEach((m, idx) => {
-      if (!m.is_relevant) {
-        return;
-      }
       const card = document.createElement('div');
       card.className = 'card shadow-sm';
 
